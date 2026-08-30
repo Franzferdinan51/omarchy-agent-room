@@ -42,7 +42,33 @@ Item {
     return s
   }
   readonly property var rooms: house.rooms || []
-  readonly property var stats: house.stats || ({})
+  readonly property var stats: {
+    var s = house.stats || ({})
+    if (s.teams !== undefined) return s
+    var mail = house.mail || []
+    var work = house.work || []
+    var board = house.board || []
+    var running = 0
+    var rs = house.rooms || []
+    for (var i = 0; i < rs.length; i++) {
+      var roles = rs[i].roles || []
+      for (var k = 0; k < roles.length; k++)
+        if (roles[k].status === "running") running++
+    }
+    return {
+      teams: rs.length,
+      running: running,
+      messages: mail.length,
+      open_board: board.length,
+      active_work: work.length,
+      blocked_work: 0,
+      claims: (house.claims || []).length,
+      cmds: (house.cmds || []).length,
+      plan: (house.plan || []).length,
+      health: (house.health || []).length,
+      context: (house.context || []).length
+    }
+  }
   readonly property var meta: house.meta || ({})
   readonly property var room: rooms.length > 0 ? rooms[Math.min(selectedRoom, rooms.length - 1)] : null
   readonly property var roomMail: {

@@ -168,7 +168,7 @@ class House:
 
     def _write(self, data: dict[str, Any]) -> None:
         data["updated_at"] = now_iso()
-        data["health"] = derive_health(data)
+        decorate_house(data)
         tmp = self.path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         tmp.replace(self.path)
@@ -227,6 +227,42 @@ class House:
             "state_path": str(self.path),
         }
         return data
+
+
+def decorate_house(data: dict[str, Any]) -> dict[str, Any]:
+    """Fill stats/meta/health so the console FileView does not need a second snapshot."""
+    rooms = data.get("rooms") or []
+    mail = data.get("mail") or []
+    work = data.get("work") or []
+    claims = data.get("claims") or []
+    board = data.get("board") or []
+    running_agents = 0
+    for room in rooms:
+        for role in room.get("roles") or []:
+            if role.get("status") == "running":
+                running_agents += 1
+    data["health"] = derive_health(data)
+    data["stats"] = {
+        "teams": len(rooms),
+        "running": running_agents,
+        "messages": len(mail),
+        "open_board": sum(1 for p in board if p.get("status") == "open"),
+        "active_work": sum(1 for w in work if w.get("status") == "active"),
+        "blocked_work": sum(1 for w in work if w.get("status") == "blocked"),
+        "claims": len(claims),
+        "cmds": len(data.get("cmds") or []),
+        "plan": len(data.get("plan") or []),
+        "health": len(data["health"]),
+        "context": len(data.get("context") or []),
+    }
+    data["meta"] = {
+        "program": (data.get("house") or {}).get("default_program") or default_program(),
+        "omarchy": omarchy_version(),
+        "version": VERSION,
+        "plugin_id": PLUGIN_ID,
+        "state_path": str(HOUSE_PATH),
+    }
+    return data
 
 
 def derive_health(data: dict[str, Any]) -> list[dict[str, Any]]:
