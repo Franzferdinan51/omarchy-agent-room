@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,6 +89,30 @@ class HouseTests(unittest.TestCase):
         ar.reset_house(self.house)
         self.assertEqual(self.house.snapshot()["rooms"], [])
         self.assertEqual(self.house.snapshot()["settings"]["default_model"], "gpt-5.2-codex")
+
+    def test_mcp_protocol_negotiates_and_calls_tool(self):
+        proc = subprocess.Popen(
+            [str(ROOT / "bin/agent-room"), "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
+        self.addCleanup(proc.kill)
+
+        def call(request):
+            body = json.dumps(request).encode()
+            proc.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+            proc.stdin.flush()
+            headers = {}
+            while True:
+                line = proc.stdout.readline()
+                if line in (b"\n", b"\r\n"):
+                    break
+                key, value = line.decode().split(":", 1)
+                headers[key.lower()] = value.strip()
+            return json.loads(proc.stdout.read(int(headers["content-length"])))
+
+        initialized = call({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+        self.assertEqual(initialized["result"]["protocolVersion"], "2025-06-18")
+        listed = call({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        self.assertTrue(any(tool["name"] == "send_mail" for tool in listed["result"]["tools"]))
 
     def test_mixed_harness_and_acp_seats(self):
         room = self.house.mutate(

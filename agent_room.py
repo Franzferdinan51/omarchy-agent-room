@@ -1437,8 +1437,10 @@ def run_mcp() -> int:
             continue
         try:
             if method == "initialize":
+                requested_version = str((req.get("params") or {}).get("protocolVersion") or "")
+                protocol_version = requested_version if requested_version in {"2024-11-05", "2025-03-26", "2025-06-18"} else "2024-11-05"
                 result = {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": protocol_version,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "agent-room", "version": VERSION},
                 }
