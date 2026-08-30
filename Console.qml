@@ -57,6 +57,10 @@ Item {
   property string telegramTeam: ""
   property bool telegramAutoApprove: false
 
+  onTabChanged: {
+    if (scrollArea && scrollArea.contentItem) scrollArea.contentItem.contentY = 0
+  }
+
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
   readonly property color accent: Color.accent

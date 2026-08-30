@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 import agent_room as ar  # noqa: E402
 import connectors  # noqa: E402
+import acp_host  # noqa: E402
 
 
 class HouseTests(unittest.TestCase):
@@ -74,6 +75,24 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(len(self.house.load()["mail"]), 0)
         self.assertEqual(self.house.load()["telegram"]["pending"][0]["chat_id"], "99")
         send.assert_called_once()
+
+    def test_acp_host_completes_initialize_session_and_prompt(self):
+        fake = self.dir / "fake_acp.py"
+        fake.write_text(
+            "import json, sys\n"
+            "for line in sys.stdin:\n"
+            "    msg = json.loads(line)\n"
+            "    if msg.get('id') == 1: print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1}}), flush=True)\n"
+            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{'sessionId':'fake-session'}}), flush=True)\n"
+            "    elif msg.get('id') == 3: print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
+            encoding="utf-8",
+        )
+        log = self.dir / "acp.jsonl"
+        with mock.patch.object(acp_host.hx, "acp_argv", return_value=[sys.executable, str(fake)]):
+            result = acp_host.run_seat("fake", str(self.dir), "hello", log, os.environ.copy())
+        self.assertEqual(result, 0)
+        events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(any(event.get("payload", {}).get("id") == 3 for event in events))
 
     def test_room_names_must_be_unique_and_slug_safe(self):
         first = self.house.mutate(

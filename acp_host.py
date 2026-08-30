@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -36,6 +37,25 @@ def _send(proc: subprocess.Popen, msg: dict[str, Any]) -> None:
     proc.stdin.flush()
 
 
+def _close_proc(proc: subprocess.Popen) -> None:
+    if proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        if stream:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
 def _read_json_line(proc: subprocess.Popen, timeout: float = 30.0) -> dict[str, Any] | None:
     assert proc.stdout is not None
     deadline = time.time() + timeout
@@ -43,19 +63,23 @@ def _read_json_line(proc: subprocess.Popen, timeout: float = 30.0) -> dict[str, 
     while time.time() < deadline:
         if proc.poll() is not None and not buf:
             return None
-        ch = proc.stdout.read(1)
-        if not ch:
-            time.sleep(0.02)
+        remaining = max(0.0, deadline - time.time())
+        try:
+            ready, _, _ = select.select([proc.stdout], [], [], min(remaining, 0.25))
+        except (OSError, ValueError):
+            return None
+        if not ready:
             continue
-        if ch in (b"\n", b"\r"):
-            if not buf:
+        chunk = proc.stdout.readline()
+        if not chunk:
+            continue
+        for line in chunk.splitlines():
+            if not line:
                 continue
             try:
-                return json.loads(buf.decode("utf-8"))
+                return json.loads(line.decode("utf-8"))
             except json.JSONDecodeError:
-                buf = b""
                 continue
-        buf += ch
         if len(buf) > 8_000_000:
             buf = b""
     return None
@@ -71,7 +95,7 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
     _send(
         proc,
@@ -88,6 +112,10 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
     )
     init = _read_json_line(proc, 20)
     _log(log_path, {"type": "rpc", "dir": "in", "payload": init})
+    if not init or init.get("error") or not init.get("result"):
+        _log(log_path, {"type": "error", "message": "ACP initialize failed"})
+        _close_proc(proc)
+        return 2
     _send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
     _send(
         proc,
@@ -109,14 +137,14 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
             break
         if msg.get("error") and msg.get("id") == 2:
             _log(log_path, {"type": "error", "message": msg["error"]})
-            proc.terminate()
+            _close_proc(proc)
             return 2
     session_id = ""
     if isinstance(session, dict):
         session_id = str(session.get("sessionId") or session.get("session_id") or "")
     if not session_id:
         _log(log_path, {"type": "error", "message": "ACP session/new did not return sessionId"})
-        proc.terminate()
+        _close_proc(proc)
         return 3
     _send(
         proc,
@@ -144,11 +172,7 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         if msg.get("id") == 3:
             break
     _log(log_path, {"type": "done", "returncode": proc.poll()})
-    if proc.poll() is None:
-        try:
-            proc.terminate()
-        except OSError:
-            pass
+    _close_proc(proc)
     return 0
 
 
