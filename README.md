@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.2.1** — native console with model selection and Settings maintenance actions.
+Current release: **1.3.0** — native console with model selection, team editing, and Settings maintenance actions.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -16,6 +16,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
 - **Models** — choose from every model configured in Grok Build, plus its fetched model catalog; new seats inherit it and launch with `--model`
 - **House maintenance** — Settings includes Clear all messages and Reset house actions
+- **Team management** — House can edit a team's name or goal, or delete a team and its associated mail, work, claims, plan, and context
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide
@@ -59,7 +60,7 @@ The server is `bin/agent-room mcp` (JSON-RPC stdio, no port).
 
 | Tool | Use |
 |---|---|
-| `room_create` / `room_start` / `room_list` | Rooms |
+| `room_create` / `room_update` / `room_delete` / `room_start` / `room_list` | Create, edit, delete, and inspect teams |
 | `send_mail` / `fetch_inbox` / `reply_mail` | MCP Mail |
 | `ask_help` / `board_list` / `board_reply` | Message board |
 | `create_work` / `claim_work` / `complete_work` | Task capsules |
@@ -75,6 +76,8 @@ State file: `~/.local/state/omarchy/agent-room/house.json`
 agent-room init
 agent-room create-room --name Superprompt --goal "Dissect SuperPrompt" --cwd ~/Work/superprompt
 agent-room start-room <room-id>
+agent-room update-room <room-id> --goal "A revised goal"
+agent-room delete-room <room-id>
 agent-room send --room <id> --from operator --to '*' --body 'ship it'
 agent-room board-post --room <id> --author operator --title Help --body '...'
 agent-room models                         # list Grok-configured and cached models

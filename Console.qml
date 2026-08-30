@@ -13,6 +13,10 @@ Item {
   property bool closingFromHost: false
   property string tab: "teams"
   property int selectedRoom: 0
+  property string editRoomId: ""
+  property string editRoomName: ""
+  property string editRoomGoal: ""
+  property bool deleteArmed: false
   property var house: ({})
   property string formName: ""
   property string formGoal: ""
@@ -247,6 +251,38 @@ Item {
     if (formCreative) args = args.concat(["--seat", "creative-director=" + formHCreative + ":" + formTCreative])
     tab = "house"
     runCli(args)
+  }
+
+  function selectRoomForEdit(index) {
+    var selected = root.rooms[index]
+    if (!selected) return
+    selectedRoom = index
+    editRoomId = selected.id || ""
+    editRoomName = selected.name || ""
+    editRoomGoal = selected.goal || ""
+    deleteArmed = false
+  }
+
+  function editSelectedRoom() {
+    if (!editRoomId || !editRoomName.trim() || !editRoomGoal.trim()) {
+      lastError = "Team name and goal are required"
+      return
+    }
+    runCli(["update-room", editRoomId, "--name", editRoomName.trim(), "--goal", editRoomGoal.trim()])
+  }
+
+  function deleteSelectedRoom() {
+    if (!editRoomId) return
+    if (!deleteArmed) {
+      deleteArmed = true
+      return
+    }
+    runCli(["delete-room", editRoomId])
+    selectedRoom = 0
+    editRoomId = ""
+    editRoomName = ""
+    editRoomGoal = ""
+    deleteArmed = false
   }
 
   function saveSettings() {
@@ -824,7 +860,40 @@ Item {
                     bordered: true
                     selected: root.selectedRoom === index
                     text: (modelData.name || "") + "  ·  " + (modelData.status || "idle") + "  ·  " + ((modelData.roles || []).length) + " seats"
-                    onClicked: { root.selectedRoom = index; root.tab = "teams" }
+                    onClicked: root.selectRoomForEdit(index)
+                  }
+                }
+                Column {
+                  visible: !!root.editRoomId
+                  width: parent.width
+                  spacing: Style.space(8)
+                  PanelSectionHeader { text: "EDIT SELECTED TEAM"; foreground: root.foreground }
+                  TextField {
+                    width: parent.width
+                    placeholderText: "Team name"
+                    text: root.editRoomName
+                    onTextChanged: root.editRoomName = text
+                  }
+                  TextField {
+                    width: parent.width
+                    placeholderText: "Team goal"
+                    text: root.editRoomGoal
+                    onTextChanged: root.editRoomGoal = text
+                  }
+                  Text {
+                    width: parent.width
+                    text: root.deleteArmed ? "Click Confirm delete to remove this team and its messages, work, claims, plan, and context." : "Changes apply to the selected team."
+                    color: root.deleteArmed ? root.urgent : root.dim
+                    wrapMode: Text.Wrap
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Row {
+                    spacing: Style.space(8)
+                    Button { text: "Save changes"; bordered: true; onClicked: root.editSelectedRoom() }
+                    Button { text: "Open chat"; bordered: true; onClicked: root.tab = "teams" }
+                    Button { text: root.deleteArmed ? "Confirm delete" : "Delete team"; bordered: true; onClicked: root.deleteSelectedRoom() }
+                    Button { visible: root.deleteArmed; text: "Cancel"; bordered: true; onClicked: root.deleteArmed = false }
                   }
                 }
               }

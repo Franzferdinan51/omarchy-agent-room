@@ -24,7 +24,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -349,6 +349,41 @@ def find_role(room: dict[str, Any], name: str) -> dict[str, Any] | None:
         if role.get("id") == want or role.get("name", "").lower() == want:
             return role
     return None
+
+
+def update_room(data: dict[str, Any], room_id: str, name: str | None = None, goal: str | None = None) -> dict[str, Any]:
+    room = find_room(data, room_id)
+    if name is not None:
+        name = name.strip()
+        if not name:
+            raise ValueError("team name cannot be empty")
+        room["name"] = name
+        room["slug"] = slugify(name)
+    if goal is not None:
+        goal = goal.strip()
+        if not goal:
+            raise ValueError("team goal cannot be empty")
+        room["goal"] = goal
+    log_cmd(data, "operator", f"update-room {room['name']}", "ok")
+    return room
+
+
+def delete_room(house: House, room_id: str) -> dict[str, Any]:
+    def _delete(data: dict[str, Any]) -> dict[str, Any]:
+        room = find_room(data, room_id)
+        for role in room.get("roles") or []:
+            pid = int(role.get("pid") or 0)
+            if pid > 1:
+                try:
+                    os.kill(pid, 15)
+                except OSError:
+                    pass
+        for key in ("mail", "board", "work", "claims", "plan", "context"):
+            data[key] = [item for item in data.get(key, []) if item.get("room_id") != room["id"]]
+        data["rooms"] = [item for item in data.get("rooms", []) if item.get("id") != room["id"]]
+        log_cmd(data, "operator", f"delete-room {room['name']}", "ok")
+        return room
+    return house.mutate(_delete)
 
 
 def create_room(
@@ -934,6 +969,16 @@ TOOLS = [
         },
     },
     {
+        "name": "room_update",
+        "description": "Edit a team's name and/or goal.",
+        "inputSchema": {"type": "object", "properties": {"room_id": {"type": "string"}, "name": {"type": "string"}, "goal": {"type": "string"}}},
+    },
+    {
+        "name": "room_delete",
+        "description": "Delete a team and its associated mail, work, claims, plan, and context.",
+        "inputSchema": {"type": "object", "properties": {"room_id": {"type": "string"}}, "required": ["room_id"]},
+    },
+    {
         "name": "whoami",
         "description": "This seat's room/role from AGENT_ROOM_* env.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -1232,6 +1277,11 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
         )
     if name == "room_start":
         return start_room(house, _resolved_room(args, house))
+    if name == "room_update":
+        room_id = _resolved_room(args, house)
+        return house.mutate(lambda d: update_room(d, room_id, args.get("name"), args.get("goal")))
+    if name == "room_delete":
+        return delete_room(house, _resolved_room(args, house))
     if name == "send_mail":
         room_id = _resolved_room(args, house)
         sender = _agent_arg(args, "sender")
@@ -1526,6 +1576,12 @@ def cli(argv: list[str] | None = None) -> int:
     p_start.add_argument("room_id")
     p_stop = sub.add_parser("stop-room")
     p_stop.add_argument("room_id")
+    p_update = sub.add_parser("update-room", help="Edit a team's name or goal")
+    p_update.add_argument("room_id")
+    p_update.add_argument("--name")
+    p_update.add_argument("--goal")
+    p_delete = sub.add_parser("delete-room", help="Delete a team and its associated data")
+    p_delete.add_argument("room_id")
 
     p_mail = sub.add_parser("send")
     p_mail.add_argument("--room", required=True)
@@ -1633,6 +1689,12 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "stop-room":
         print_json(stop_room(house, args.room_id))
+        return 0
+    if args.cmd == "update-room":
+        print_json(house.mutate(lambda d: update_room(d, args.room_id, args.name, args.goal)))
+        return 0
+    if args.cmd == "delete-room":
+        print_json(delete_room(house, args.room_id))
         return 0
     if args.cmd == "send":
         msg = house.mutate(

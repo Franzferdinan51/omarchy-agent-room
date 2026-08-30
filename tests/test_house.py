@@ -113,6 +113,18 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(initialized["result"]["protocolVersion"], "2025-06-18")
         listed = call({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         self.assertTrue(any(tool["name"] == "send_mail" for tool in listed["result"]["tools"]))
+        tool_names = {tool["name"] for tool in listed["result"]["tools"]}
+        self.assertTrue({"room_update", "room_delete"}.issubset(tool_names))
+
+    def test_edit_team_goal_and_delete_team(self):
+        room = self.house.mutate(lambda d: ar.create_room(d, "Draft", "Old goal", str(self.dir), ["builder"], "codex"))
+        updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], "Renamed", "New goal"))
+        self.assertEqual((updated["name"], updated["goal"]), ("Renamed", "New goal"))
+        self.house.mutate(lambda d: ar.send_mail(d, room["id"], "Builder", ["*"], "hi", "message"))
+        deleted = ar.delete_room(self.house, room["id"])
+        self.assertEqual(deleted["id"], room["id"])
+        self.assertEqual(self.house.snapshot()["rooms"], [])
+        self.assertEqual(self.house.snapshot()["mail"], [])
 
     def test_mixed_harness_and_acp_seats(self):
         room = self.house.mutate(
