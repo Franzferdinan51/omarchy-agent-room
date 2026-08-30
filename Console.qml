@@ -401,13 +401,6 @@ Item {
             Item { width: 1; height: 1 }
 
             Button {
-              text: "REVIEW"
-              bordered: true
-              foreground: root.foreground
-              onClicked: root.reviewRoom()
-            }
-
-            Button {
               text: "SETTINGS"
               bordered: true
               foreground: root.foreground
