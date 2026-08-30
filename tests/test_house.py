@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import agent_room as ar  # noqa: E402
+import connectors  # noqa: E402
 
 
 class HouseTests(unittest.TestCase):
@@ -41,6 +42,38 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(len(inbox), 1)
         self.assertIn("claimed", inbox[0]["body"].lower())
         self.assertEqual(msg["from"], "Reviewer")
+
+    def test_telegram_token_is_not_in_house_snapshot(self):
+        with mock.patch.object(connectors, "_secret_tool", return_value=None):
+            result = connectors.telegram_set_token("fixture-token-value", self.house.path)
+            self.assertEqual(result["storage"], "protected-file")
+            self.assertTrue((self.dir / "telegram.token").stat().st_mode & 0o077 == 0)
+            snapshot = self.house.snapshot()
+            self.assertNotIn("fixture-token-value", json.dumps(snapshot))
+            self.assertTrue(snapshot["telegram_status"]["configured"])
+
+    def test_telegram_approved_chat_routes_to_selected_team(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Telegram Team", "Handle remote requests", str(self.dir), ["coordinator"], "grok")
+        )
+        self.house.mutate(lambda d: d["settings"].update(telegram_team=room["id"]))
+        self.house.mutate(lambda d: d["telegram"].update(approved=[{"chat_id": "42", "username": "tester"}]))
+        with mock.patch.object(connectors, "telegram_send"):
+            msg = ar.telegram_route_update(self.house, {"update_id": 7, "message": {"chat": {"id": 42}, "from": {"username": "tester"}, "text": "Please check status"}})
+        self.assertEqual(msg["room_id"], room["id"])
+        self.assertEqual(msg["from"], "telegram:tester")
+        self.assertEqual(msg["thread_id"], "telegram:42")
+
+    def test_telegram_unknown_chat_is_queued_and_not_delivered(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Pairing Team", "Handle paired requests", str(self.dir), ["coordinator"], "grok")
+        )
+        self.house.mutate(lambda d: d["settings"].update(telegram_team=room["id"]))
+        with mock.patch.object(connectors, "telegram_send") as send:
+            self.assertIsNone(ar.telegram_route_update(self.house, {"update_id": 8, "message": {"chat": {"id": 99}, "from": {"first_name": "New"}, "text": "Hello"}}))
+        self.assertEqual(len(self.house.load()["mail"]), 0)
+        self.assertEqual(self.house.load()["telegram"]["pending"][0]["chat_id"], "99")
+        send.assert_called_once()
 
     def test_room_names_must_be_unique_and_slug_safe(self):
         first = self.house.mutate(

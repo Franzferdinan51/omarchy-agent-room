@@ -25,7 +25,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.4.1"
+VERSION = "1.5.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -88,6 +88,7 @@ def empty_house() -> dict[str, Any]:
         "plan": [],
         "context": [],
         "health": [],
+        "telegram": {"pending": [], "approved": [], "offset": 0, "last_message_at": "", "last_error": ""},
     }
 
 
@@ -157,6 +158,8 @@ class House:
         ):
             if not isinstance(base.get(key), list):
                 base[key] = []
+        if not isinstance(base.get("telegram"), dict):
+            base["telegram"] = empty_house()["telegram"]
         if not isinstance(base.get("house"), dict):
             base["house"] = empty_house()["house"]
         base["settings"] = hx.merge_settings(base.get("settings") if isinstance(base.get("settings"), dict) else None)
@@ -200,6 +203,10 @@ class House:
             data["acp"] = connectors.acp_catalog()
         except Exception:  # noqa: BLE001
             data["acp"] = []
+        try:
+            data["telegram_status"] = connectors.telegram_status(self.path)
+        except Exception as exc:  # noqa: BLE001
+            data["telegram_status"] = {"configured": False, "polling": False, "status": "error", "error": str(exc)}
         return data
 
 
@@ -576,6 +583,148 @@ def send_mail(
     data["mail"] = data["mail"][-MAX_MAIL:]
     log_cmd(data, sender, f"send-mail {subject or '(no subject)'}", "ok")
     return msg
+
+
+def telegram_route_update(house: House, update: dict[str, Any]) -> dict[str, Any] | None:
+    message = update.get("message") or {}
+    chat = message.get("chat") or {}
+    sender = message.get("from") or {}
+    text = str(message.get("text") or "").strip()
+    chat_id = str(chat.get("id") or "")
+    if not chat_id or not text:
+        return None
+
+    def _route(data: dict[str, Any]) -> dict[str, Any] | None:
+        settings = hx.merge_settings(data.get("settings"))
+        telegram = data.setdefault("telegram", {"pending": [], "approved": [], "offset": 0})
+        approved = {str(item.get("chat_id")) for item in telegram.get("approved") or []}
+        existing = {str(item.get("chat_id")) for item in telegram.get("pending") or []}
+        profile = {
+            "chat_id": chat_id,
+            "username": str(sender.get("username") or ""),
+            "name": " ".join(str(sender.get(k) or "") for k in ("first_name", "last_name")).strip(),
+            "title": str(chat.get("title") or ""),
+        }
+        if chat_id not in approved:
+            if chat_id not in existing:
+                telegram.setdefault("pending", []).append(profile)
+            if settings.get("telegram_auto_approve"):
+                telegram.setdefault("approved", []).append(profile)
+            else:
+                try:
+                    connectors.telegram_send("This chat is not paired with Agent Room yet. Approve it from Settings, then try again.", chat_id, house.path)
+                except RuntimeError:
+                    pass
+                return None
+        room_id = str(settings.get("telegram_team") or "")
+        if not room_id and data.get("rooms"):
+            room_id = str(data["rooms"][0].get("id") or "")
+        if not room_id:
+            return None
+        room = find_room(data, room_id)
+        display = profile["username"] or profile["name"] or chat_id
+        return {"_telegram_result": send_mail(data, room["id"], f"telegram:{display}", "*", "Telegram", text, f"telegram:{chat_id}")}
+
+    result = house.mutate(_route)
+    return result.get("_telegram_result") if isinstance(result, dict) else None
+
+
+def telegram_approve(house: House, chat_id: str) -> dict[str, Any]:
+    def _approve(data: dict[str, Any]) -> dict[str, Any]:
+        state = data.setdefault("telegram", {})
+        pending = [x for x in state.get("pending") or [] if str(x.get("chat_id")) == str(chat_id)]
+        profile = pending[0] if pending else {"chat_id": str(chat_id)}
+        state["pending"] = [x for x in state.get("pending") or [] if str(x.get("chat_id")) != str(chat_id)]
+        state.setdefault("approved", [])[:] = [x for x in state.get("approved") or [] if str(x.get("chat_id")) != str(chat_id)]
+        state["approved"].append(profile)
+        return profile
+    result = house.mutate(_approve)
+    try:
+        connectors.telegram_send("This chat is now paired with Agent Room.", chat_id, house.path)
+    except RuntimeError:
+        pass
+    return result
+
+
+def telegram_deny(house: House, chat_id: str) -> dict[str, Any]:
+    return house.mutate(lambda data: data.setdefault("telegram", {}).update(
+        pending=[x for x in data.setdefault("telegram", {}).get("pending", []) if str(x.get("chat_id")) != str(chat_id)]
+    ) or {"chat_id": str(chat_id), "denied": True})
+
+
+def telegram_poll_loop(house: House) -> int:
+    state_dir = house.path.parent
+    pid_path = state_dir / "telegram.pid"
+    if pid_path.exists():
+        try:
+            old_pid = int(pid_path.read_text().strip())
+            os.kill(old_pid, 0)
+            return 0
+        except (OSError, ValueError):
+            pass
+    token = connectors.telegram_get_token(house.path)
+    if not token:
+        raise RuntimeError("No Telegram bot token configured")
+    connectors.telegram_delete_webhook(house.path)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    stop = False
+    def _stop(_sig, _frame):
+        nonlocal stop
+        stop = True
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+    try:
+        offset = int((house.load().get("telegram") or {}).get("offset") or 0)
+        delay = 1.0
+        while not stop:
+            try:
+                updates = connectors.telegram_poll(token, offset)
+                delay = 1.0
+                for update in updates:
+                    update_id = int(update.get("update_id") or 0)
+                    offset = max(offset, update_id + 1)
+                    telegram_route_update(house, update)
+                    house.mutate(lambda data, off=offset: data.setdefault("telegram", {}).update(offset=off, last_message_at=now_iso(), last_error=""))
+            except (RuntimeError, ValueError) as exc:
+                house.mutate(lambda data, msg=str(exc): data.setdefault("telegram", {}).update(last_error=msg))
+                time.sleep(min(delay, 30.0))
+                delay = min(delay * 2.0, 30.0)
+    finally:
+        try:
+            pid_path.unlink()
+        except FileNotFoundError:
+            pass
+    return 0
+
+
+def telegram_start(house: House) -> dict[str, Any]:
+    status = connectors.telegram_test(house.path)
+    if status.get("status") != "ready":
+        raise RuntimeError(str(status.get("error") or "Telegram token validation failed"))
+    state_dir = house.path.parent
+    state_dir.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "telegram-poll", "--state", str(house.path)],
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return {"started": True, "pid": proc.pid}
+
+
+def telegram_stop(house: House) -> dict[str, Any]:
+    pid_path = house.path.parent / "telegram.pid"
+    try:
+        pid = int(pid_path.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        return {"stopped": True, "pid": pid}
+    except (FileNotFoundError, ValueError):
+        return {"stopped": False, "reason": "not running"}
+    except ProcessLookupError:
+        try:
+            pid_path.unlink()
+        except FileNotFoundError:
+            pass
+        return {"stopped": False, "reason": "not running"}
 
 
 def inbox_for(data: dict[str, Any], agent: str, room_id: str | None = None) -> list[dict[str, Any]]:
@@ -1272,6 +1421,20 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "telegram_status",
+        "description": "Show masked Telegram connector status.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "telegram_send",
+        "description": "Send a Telegram reply to the chat associated with a Telegram thread.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"chat_id": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["chat_id", "text"],
+        },
+    },
+    {
         "name": "set_settings",
         "description": "Patch Agent Room settings (default harness, per-role harness, transport, Hermes/ACP flags).",
         "inputSchema": {"type": "object", "properties": {"patch": {"type": "object"}}, "required": ["patch"]},
@@ -1504,6 +1667,10 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
         return hx.detect()
     if name == "hermes_status":
         return connectors.hermes_status()
+    if name == "telegram_status":
+        return connectors.telegram_status(house.path)
+    if name == "telegram_send":
+        return connectors.telegram_send(str(args.get("text") or ""), str(args.get("chat_id") or ""), house.path)
     if name == "set_settings":
         return apply_settings(house, args.get("patch") or args)
     if name == "set_seat":
@@ -1713,6 +1880,28 @@ def cli(argv: list[str] | None = None) -> int:
     sub.add_parser("harnesses", help="List harnesses and ACP adapters")
     sub.add_parser("models", help="List models configured or available in Grok Build")
     sub.add_parser("hermes", help="Hermes Agent status")
+    p_tstatus = sub.add_parser("telegram-status", help="Telegram connector status")
+    p_tstatus.add_argument("--state", default="")
+    p_ttest = sub.add_parser("telegram-test", help="Validate Telegram bot token")
+    p_ttest.add_argument("--state", default="")
+    p_ttoken = sub.add_parser("telegram-set-token", help="Store Telegram bot token securely")
+    p_ttoken.add_argument("token", nargs="?")
+    p_ttoken.add_argument("--state", default="")
+    p_tforget = sub.add_parser("telegram-forget-token", help="Remove the Telegram bot token")
+    p_tforget.add_argument("--state", default="")
+    p_tstart = sub.add_parser("telegram-start", help="Start Telegram polling")
+    p_tstart.add_argument("--state", default="")
+    p_tstop = sub.add_parser("telegram-stop", help="Stop Telegram polling")
+    p_tstop.add_argument("--state", default="")
+    p_tpoll = sub.add_parser("telegram-poll", help="Internal Telegram polling worker")
+    p_tpoll.add_argument("--state", required=True)
+    p_tapprove = sub.add_parser("telegram-approve", help="Approve a Telegram chat")
+    p_tapprove.add_argument("chat_id")
+    p_tdeny = sub.add_parser("telegram-deny", help="Deny a Telegram chat")
+    p_tdeny.add_argument("chat_id")
+    p_tsend = sub.add_parser("telegram-send", help="Send a Telegram reply")
+    p_tsend.add_argument("chat_id")
+    p_tsend.add_argument("--text", required=True)
 
     p_set = sub.add_parser("set-settings")
     p_set.add_argument("--json", dest="patch_json", default="")
@@ -1820,6 +2009,41 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "hermes":
         print_json(connectors.hermes_status())
+        return 0
+    if args.cmd == "telegram-status":
+        path = Path(args.state) if args.state else house.path
+        print_json(connectors.telegram_status(path))
+        return 0
+    if args.cmd == "telegram-test":
+        path = Path(args.state) if args.state else house.path
+        print_json(connectors.telegram_test(path))
+        return 0
+    if args.cmd == "telegram-set-token":
+        path = Path(args.state) if args.state else house.path
+        print_json(connectors.telegram_set_token(args.token or os.environ.get("AGENT_ROOM_TELEGRAM_TOKEN", ""), path))
+        return 0
+    if args.cmd == "telegram-forget-token":
+        path = Path(args.state) if args.state else house.path
+        print_json(connectors.telegram_forget_token(path))
+        return 0
+    if args.cmd == "telegram-start":
+        path = Path(args.state) if args.state else house.path
+        print_json(telegram_start(House(path)))
+        return 0
+    if args.cmd == "telegram-stop":
+        path = Path(args.state) if args.state else house.path
+        print_json(telegram_stop(House(path)))
+        return 0
+    if args.cmd == "telegram-poll":
+        return telegram_poll_loop(House(Path(args.state)))
+    if args.cmd == "telegram-approve":
+        print_json(telegram_approve(house, args.chat_id))
+        return 0
+    if args.cmd == "telegram-deny":
+        print_json(telegram_deny(house, args.chat_id))
+        return 0
+    if args.cmd == "telegram-send":
+        print_json(connectors.telegram_send(args.text, args.chat_id, house.path))
         return 0
     if args.cmd == "clear-messages":
         print_json(clear_messages(house))

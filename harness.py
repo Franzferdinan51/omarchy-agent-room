@@ -284,6 +284,10 @@ def default_settings() -> dict[str, Any]:
         "hermes_gateway": False,
         "acp_enabled": True,
         "acp_auto_prompt": True,
+        "telegram_enabled": False,
+        "telegram_team": "",
+        "telegram_auto_approve": False,
+        "telegram_notify_progress": True,
     }
 
 

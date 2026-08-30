@@ -53,6 +53,9 @@ Item {
   property string settingsWorkspace: "agent-house"
   property bool settingsHydrated: false
   property var grokModelOptions: []
+  property string telegramToken: ""
+  property string telegramTeam: ""
+  property bool telegramAutoApprove: false
 
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
@@ -108,6 +111,13 @@ Item {
   }
   readonly property var meta: house.meta || ({})
   readonly property var hermes: house.hermes || ({})
+  readonly property var telegramStatus: house.telegram_status || ({ status: "disconnected", polling: false, configured: false })
+  readonly property var telegramState: house.telegram || ({ pending: [], approved: [] })
+  readonly property var telegramTeamOptions: {
+    var out = [{ value: "", label: "First team" }]
+    for (var i = 0; i < root.rooms.length; i++) out.push({ value: root.rooms[i].id, label: root.rooms[i].name || root.rooms[i].id })
+    return out
+  }
   readonly property var harnessOptions: {
     var hs = house.harnesses || []
     var out = []
@@ -237,6 +247,8 @@ Item {
       if (s.mixed_harness !== undefined) settingsMixed = !!s.mixed_harness
       if (s.acp_enabled !== undefined) settingsAcp = !!s.acp_enabled
       if (s.hermes_enabled !== undefined) settingsHermes = !!s.hermes_enabled
+      if (s.telegram_team !== undefined) telegramTeam = s.telegram_team
+      if (s.telegram_auto_approve !== undefined) telegramAutoApprove = !!s.telegram_auto_approve
       var rh = s.role_harness || {}
       if (rh.coordinator) formHCoordinator = rh.coordinator
       if (rh.builder) formHBuilder = rh.builder
@@ -254,9 +266,10 @@ Item {
     }
   }
 
-  function runCli(args) {
+  function runCli(args, env) {
     if (cli.running) return
     lastError = ""
+    cli.environment = env || ({})
     cli.command = [pluginDir + "/bin/agent-room"].concat(args)
     cli.running = true
   }
@@ -336,6 +349,8 @@ Item {
       acp_enabled: settingsAcp,
       hermes_enabled: settingsHermes,
       workspace: settingsWorkspace,
+      telegram_team: telegramTeam,
+      telegram_auto_approve: telegramAutoApprove,
       role_harness: {
         coordinator: formHCoordinator,
         builder: formHBuilder,
@@ -353,6 +368,19 @@ Item {
     }
     runCli(["set-settings", "--json", JSON.stringify(patch)])
   }
+
+  function telegramAction(action) {
+    if (action === "set-token") {
+      if (!telegramToken.trim()) { lastError = "Enter the bot token first"; return }
+      runCli(["telegram-set-token"], { AGENT_ROOM_TELEGRAM_TOKEN: telegramToken.trim() })
+      telegramToken = ""
+      return
+    }
+    runCli(["telegram-" + action])
+  }
+
+  function telegramApprove(chatId) { runCli(["telegram-approve", String(chatId)]) }
+  function telegramDeny(chatId) { runCli(["telegram-deny", String(chatId)]) }
 
   function switchSeat(roleId, harness, transport) {
     if (!room) return
@@ -1261,6 +1289,52 @@ Item {
                 visible: root.tab === "settings"
                 width: parent.width
                 spacing: Style.space(12)
+                PanelSectionHeader { text: "TELEGRAM CONNECTOR"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  text: "Connect a Telegram bot to a team. Tokens stay in the desktop keyring when available and are never written to the Agent Room snapshot."
+                }
+                TextField {
+                  width: parent.width
+                  placeholderText: root.telegramStatus.configured ? "Token saved — enter a new token to replace it" : "BotFather token"
+                  echoMode: TextInput.Password
+                  text: root.telegramToken
+                  onTextChanged: root.telegramToken = text
+                }
+                Flow {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  Button { text: "Save token"; bordered: true; onClicked: root.telegramAction("set-token") }
+                  Button { text: "Test"; bordered: true; onClicked: root.telegramAction("test") }
+                  Button { text: "Connect"; bordered: true; enabled: root.telegramStatus.configured && !root.telegramStatus.polling; onClicked: root.telegramAction("start") }
+                  Button { text: "Pause"; bordered: true; enabled: root.telegramStatus.polling; onClicked: root.telegramAction("stop") }
+                  Button { text: "Forget token"; bordered: true; enabled: root.telegramStatus.configured; onClicked: root.telegramAction("forget-token") }
+                }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.telegramStatus.status === "error" ? root.urgent : root.foreground
+                  font.family: root.fontFamily
+                  text: "Status: " + (root.telegramStatus.status || "disconnected") + "  ·  polling: " + (root.telegramStatus.polling ? "on" : "off") + (root.telegramStatus.bot && root.telegramStatus.bot.username ? "  ·  @" + root.telegramStatus.bot.username : "") + (root.telegramStatus.error ? "\n" + root.telegramStatus.error : "")
+                }
+                Dropdown { width: parent.width; label: "Telegram team"; value: root.telegramTeam; options: root.telegramTeamOptions; onChanged: function(v) { root.telegramTeam = v } }
+                Toggle { width: parent.width; label: "Auto-approve chats"; description: "Allow new chats without manual pairing (less secure)"; checked: root.telegramAutoApprove; onClicked: root.telegramAutoApprove = !root.telegramAutoApprove }
+                PanelSectionHeader { text: "PAIRING REQUESTS  ·  " + (root.telegramState.pending || []).length; foreground: root.foreground }
+                Repeater {
+                  model: root.telegramState.pending || []
+                  delegate: Row {
+                    required property var modelData
+                    width: parent.width
+                    spacing: Style.space(8)
+                    Text { width: parent.width - 170; text: (modelData.name || modelData.username || "Telegram chat") + "  ·  " + modelData.chat_id; color: root.foreground; font.family: root.fontFamily; elide: Text.ElideRight }
+                    Button { text: "Approve"; bordered: true; onClicked: root.telegramApprove(modelData.chat_id) }
+                    Button { text: "Deny"; bordered: true; onClicked: root.telegramDeny(modelData.chat_id) }
+                  }
+                }
+                Text { visible: (root.telegramState.pending || []).length === 0; text: "No pending Telegram chats."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                 PanelSectionHeader { text: "HARNESSES"; foreground: root.foreground }
                 Text {
                   width: parent.width

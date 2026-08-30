@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.4.1** — native console with model selection, team management, filtering, safer maintenance actions, and reliable seat shutdown.
+Current release: **1.5.0** — native console with model selection, team management, Telegram connector, pairing controls, and reliable connector shutdown.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -14,6 +14,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
 - **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
 - **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
+- **Telegram** — connect a BotFather bot to a selected team with secure token storage, long polling, pairing approval, and replies through the Agent Room connector
 - **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
 - **Models** — choose from every model configured in Grok Build, plus its fetched model catalog; new seats inherit it and launch with `--model`
 - **House maintenance** — Settings includes Clear all messages and Reset house actions
@@ -87,6 +88,23 @@ agent-room delete-room <room-id>
 agent-room send --room <id> --from operator --to '*' --body 'ship it'
 agent-room board-post --room <id> --author operator --title Help --body '...'
 agent-room models                         # list Grok-configured and cached models
+agent-room telegram-set-token '<bot-token>' # store token in the keyring (or protected local fallback)
+agent-room telegram-status                 # show masked connector status
+agent-room telegram-test                   # validate token with Telegram
+agent-room telegram-start                  # start long polling
+agent-room telegram-stop                   # stop long polling
+agent-room telegram-approve <chat-id>      # approve a pairing request
+agent-room telegram-send <chat-id> --text '...' # send a reply
 agent-room clear-messages                 # clear MCP Mail and help-board posts
 agent-room reset-house                    # reset rooms/work/claims, keep settings
 ```
+
+## Telegram setup
+
+Create a bot with [BotFather](https://t.me/BotFather), copy its token, then configure it from Settings or the CLI. Agent Room validates the token with Telegram, removes any webhook, and uses one local long-polling connector. Do not run another poller with the same token.
+
+In Settings, choose the destination team, save/test the token, and connect. New chats are denied by default and appear under Pairing Requests; approve a chat before it can deliver messages. Incoming messages arrive in that team's MCP Mail with a `telegram:<chat>` sender and a Telegram thread ID. Agents can reply with the `telegram-send` command or the connector reply operation.
+
+The token is never written to `house.json`, console snapshots, logs, or this repository. Agent Room uses `secret-tool` when available. If no desktop keyring is available, it uses `~/.local/state/omarchy/agent-room/telegram.token` with mode `0600`; use **Forget token** to remove it. Pending and approved chat metadata is local state and should not be copied into GitHub.
+
+Troubleshooting: use `agent-room telegram-test` to validate the token and `agent-room telegram-status` to inspect polling state. If Telegram reports a conflict, stop any other bot process using the token, then reconnect. If a request is stuck, pause and reconnect; the update offset is persisted locally to avoid duplicate delivery.
