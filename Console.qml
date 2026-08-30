@@ -546,6 +546,8 @@ Item {
     FocusScope {
       id: focusScope
       anchors.fill: parent
+      implicitWidth: 980
+      implicitHeight: 860
       focus: true
 
       PanelKeyCatcher {
