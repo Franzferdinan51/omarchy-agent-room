@@ -155,7 +155,19 @@ Item {
       gemini: [{ value: "", label: "Auto (account default)" }, { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" }, { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" }],
       opencode: [{ value: "", label: "Auto (provider default)" }, { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" }, { value: "openai/gpt-5", label: "GPT-5" }]
     }
-    return options[harness] || [{ value: "", label: "Auto (harness default)" }]
+    var out = (options[harness] || [{ value: "", label: "Auto (harness default)" }]).slice()
+    var seen = {}
+    for (var i = 0; i < out.length; i++) seen[out[i].value] = true
+    // Grok's catalog is also the local LM Studio catalog. Expose it to every
+    // harness selector so custom/local models are not hidden by the fallback
+    // lists above. The selected harness still decides how the model is run.
+    for (var k = 0; k < root.grokModelOptions.length; k++) {
+      var discovered = root.grokModelOptions[k]
+      if (!discovered.value || seen[discovered.value]) continue
+      out.push({ value: discovered.value, label: "Grok / LM Studio · " + discovered.label })
+      seen[discovered.value] = true
+    }
+    return out
   }
   function loadGrokModels(raw) {
     try {

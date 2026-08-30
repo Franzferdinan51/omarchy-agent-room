@@ -17,7 +17,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
 - **Telegram** — connect a BotFather bot to a selected team with secure token storage, long polling, pairing approval, and replies through the Agent Room connector
 - **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
-- **Models** — choose from every model configured in Grok Build, plus its fetched model catalog; new seats inherit it and launch with `--model`
+- **Models** — choose from every model configured in Grok Build/LM Studio, plus its fetched model catalog, from any harness selector; new seats inherit it and launch with `--model`
 - **House maintenance** — Settings includes Clear all messages and Reset house actions
 - **Team management** — House can edit a team's name or goal, or delete a team and its associated mail, work, claims, plan, and context
 - **Quality of life** — filter rooms by name, goal, or status; see goals directly in the room list; refresh on demand; get visible busy/empty-state guidance; and choose each team's terminal workspace

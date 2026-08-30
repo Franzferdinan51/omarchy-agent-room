@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 import agent_room as ar  # noqa: E402
 import connectors  # noqa: E402
 import acp_host  # noqa: E402
+import harness  # noqa: E402
 
 
 class HouseTests(unittest.TestCase):
@@ -166,6 +167,11 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(room["roles"][0]["model"], "")
         updated = ar.set_seat(self.house, room["id"], "builder", model="ornith-1.5-35b-a3b")
         self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
+
+    def test_model_catalog_includes_lm_studio_entries(self):
+        options = harness.grok_model_options()
+        values = {item["value"] for item in options}
+        self.assertIn("ornith-1.5-35b-a3b", values)
 
     def test_stop_room_terminates_process_group_and_closes_terminal_window(self):
         room = self.house.mutate(
