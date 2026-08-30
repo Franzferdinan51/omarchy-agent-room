@@ -396,7 +396,9 @@ Item {
               }
             }
 
-            Item { width: Math.max(0, chrome.width - 280); height: 1 }
+            // Keep actions reachable on the compact panel width; a large
+            // fixed spacer used to push the Settings action off-screen.
+            Item { width: 1; height: 1 }
 
             Button {
               text: "REVIEW"
