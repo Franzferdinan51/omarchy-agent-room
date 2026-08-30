@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.franzferdinan51.agent-room",
+  "name": "Agent Room",
+  "version": "1.0.0",
+  "author": "Franzferdinan51",
+  "license": "MIT",
+  "description": "Native Omarchy Agent Console: create rooms of coding agents, MCP Mail between them, and a help message board. No web server.",
+  "kinds": ["bar-widget", "panel"],
+  "activation": "on-demand",
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "panel": "Console.qml"
+  },
+  "barWidget": {
+    "displayName": "Agent Room",
+    "description": "Open the Agent Console: rooms, MCP Mail, and the agent message board.",
+    "category": "AI",
+    "aliases": ["agent-room", "agent-console", "teams", "mcp-mail"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
