@@ -24,7 +24,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -351,12 +351,29 @@ def find_role(room: dict[str, Any], name: str) -> dict[str, Any] | None:
     return None
 
 
-def update_room(data: dict[str, Any], room_id: str, name: str | None = None, goal: str | None = None) -> dict[str, Any]:
+def ensure_unique_room_name(data: dict[str, Any], name: str, exclude_id: str = "") -> None:
+    slug = slugify(name)
+    normalized = name.casefold()
+    for room in data.get("rooms") or []:
+        if room.get("id") == exclude_id:
+            continue
+        if room.get("slug") == slug or str(room.get("name") or "").casefold() == normalized:
+            raise ValueError(f"team name already exists: {name}")
+
+
+def update_room(
+    data: dict[str, Any],
+    room_id: str,
+    name: str | None = None,
+    goal: str | None = None,
+    workspace: str | None = None,
+) -> dict[str, Any]:
     room = find_room(data, room_id)
     if name is not None:
         name = name.strip()
         if not name:
             raise ValueError("team name cannot be empty")
+        ensure_unique_room_name(data, name, room["id"])
         room["name"] = name
         room["slug"] = slugify(name)
     if goal is not None:
@@ -364,6 +381,11 @@ def update_room(data: dict[str, Any], room_id: str, name: str | None = None, goa
         if not goal:
             raise ValueError("team goal cannot be empty")
         room["goal"] = goal
+    if workspace is not None:
+        workspace = workspace.strip()
+        if not workspace:
+            raise ValueError("workspace cannot be empty")
+        room["workspace"] = workspace
     log_cmd(data, "operator", f"update-room {room['name']}", "ok")
     return room
 
@@ -394,6 +416,7 @@ def create_room(
     roles: list[str] | None = None,
     program: str | None = None,
     seats: dict[str, Any] | None = None,
+    workspace: str | None = None,
 ) -> dict[str, Any]:
     name = (name or "").strip()
     if not name:
@@ -401,7 +424,11 @@ def create_room(
     goal = (goal or "").strip()
     if not goal:
         raise ValueError("room goal is required")
+    ensure_unique_room_name(data, name)
     settings = hx.merge_settings(data.get("settings") if isinstance(data.get("settings"), dict) else None)
+    workspace = (workspace or settings.get("workspace") or DEFAULT_WORKSPACE).strip()
+    if not workspace:
+        raise ValueError("workspace cannot be empty")
     role_ids = [r.strip().lower() for r in (roles or DEFAULT_ROLES) if r.strip()]
     if seats and isinstance(seats, dict) and not role_ids:
         role_ids = [str(k).strip().lower() for k in seats.keys()]
@@ -437,6 +464,7 @@ def create_room(
         "name": name,
         "goal": goal,
         "cwd": cwd,
+        "workspace": workspace,
         "status": "idle",
         "program": program,
         "created_at": now_iso(),
@@ -773,7 +801,7 @@ def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, 
         else:
             launch = plugin / "bin" / "launch-seat"
             proc = subprocess.Popen(
-                [str(launch), room["id"], role["id"], program, cwd, prompt],
+                [str(launch), room["id"], role["id"], program, cwd, prompt, room.get("workspace") or settings.get("workspace") or DEFAULT_WORKSPACE],
                 env=env,
                 start_new_session=True,
                 stdout=subprocess.DEVNULL,
@@ -955,13 +983,14 @@ TOOLS = [
                 "cwd": {"type": "string"},
                 "roles": {"type": "array", "items": {"type": "string"}},
                 "program": {"type": "string"},
+                "workspace": {"type": "string", "description": "Hyprland workspace number or name, such as 2, 4, or name:dev."},
             },
             "required": ["name", "goal"],
         },
     },
     {
         "name": "room_start",
-        "description": "Launch every seat in a room on the agent-house workspace.",
+        "description": "Launch every seat in a room on its configured Hyprland workspace.",
         "inputSchema": {
             "type": "object",
             "properties": {"room_id": {"type": "string"}},
@@ -971,7 +1000,7 @@ TOOLS = [
     {
         "name": "room_update",
         "description": "Edit a team's name and/or goal.",
-        "inputSchema": {"type": "object", "properties": {"room_id": {"type": "string"}, "name": {"type": "string"}, "goal": {"type": "string"}}},
+        "inputSchema": {"type": "object", "properties": {"room_id": {"type": "string"}, "name": {"type": "string"}, "goal": {"type": "string"}, "workspace": {"type": "string"}}},
     },
     {
         "name": "room_delete",
@@ -1273,13 +1302,14 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
                 args.get("roles"),
                 args.get("program") or args.get("harness"),
                 args.get("seats"),
+                args.get("workspace"),
             )
         )
     if name == "room_start":
         return start_room(house, _resolved_room(args, house))
     if name == "room_update":
         room_id = _resolved_room(args, house)
-        return house.mutate(lambda d: update_room(d, room_id, args.get("name"), args.get("goal")))
+        return house.mutate(lambda d: update_room(d, room_id, args.get("name"), args.get("goal"), args.get("workspace")))
     if name == "room_delete":
         return delete_room(house, _resolved_room(args, house))
     if name == "send_mail":
@@ -1565,6 +1595,7 @@ def cli(argv: list[str] | None = None) -> int:
     p_create.add_argument("--program", default="")
     p_create.add_argument("--harness", default="")
     p_create.add_argument("--model", default="")
+    p_create.add_argument("--workspace", default="", help="Hyprland workspace number or name, e.g. 2, 4, or name:dev")
     p_create.add_argument(
         "--seat",
         action="append",
@@ -1580,6 +1611,7 @@ def cli(argv: list[str] | None = None) -> int:
     p_update.add_argument("room_id")
     p_update.add_argument("--name")
     p_update.add_argument("--goal")
+    p_update.add_argument("--workspace", help="Hyprland workspace number or name")
     p_delete = sub.add_parser("delete-room", help="Delete a team and its associated data")
     p_delete.add_argument("room_id")
 
@@ -1680,6 +1712,7 @@ def cli(argv: list[str] | None = None) -> int:
                 roles,
                 args.harness or args.program or None,
                 seats or None,
+                args.workspace or None,
             )
         )
         print_json(room)
@@ -1691,7 +1724,7 @@ def cli(argv: list[str] | None = None) -> int:
         print_json(stop_room(house, args.room_id))
         return 0
     if args.cmd == "update-room":
-        print_json(house.mutate(lambda d: update_room(d, args.room_id, args.name, args.goal)))
+        print_json(house.mutate(lambda d: update_room(d, args.room_id, args.name, args.goal, args.workspace)))
         return 0
     if args.cmd == "delete-room":
         print_json(delete_room(house, args.room_id))

@@ -16,10 +16,14 @@ Item {
   property string editRoomId: ""
   property string editRoomName: ""
   property string editRoomGoal: ""
+  property string editRoomWorkspace: ""
   property bool deleteArmed: false
+  property string roomFilter: ""
+  property string pendingMaintenance: ""
   property var house: ({})
   property string formName: ""
   property string formGoal: ""
+  property string formWorkspace: ""
   property string formCwd: Quickshell.env("HOME") + "/Work"
   property string formProgram: ""
   property bool formCoordinator: true
@@ -65,6 +69,16 @@ Item {
     return s
   }
   readonly property var rooms: house.rooms || []
+  readonly property var filteredRooms: {
+    var query = root.roomFilter.trim().toLowerCase()
+    var out = []
+    for (var i = 0; i < root.rooms.length; i++) {
+      var r = root.rooms[i]
+      var haystack = ((r.name || "") + " " + (r.goal || "") + " " + (r.status || "")).toLowerCase()
+      if (!query || haystack.indexOf(query) >= 0) out.push({ room: r, index: i })
+    }
+    return out
+  }
   readonly property var stats: {
     var s = house.stats || ({})
     if (s.teams !== undefined) return s
@@ -197,6 +211,22 @@ Item {
     try {
       house = JSON.parse(raw || "{}")
       lastError = ""
+      var selectedIndex = -1
+      for (var i = 0; i < root.rooms.length; i++) {
+        if (root.rooms[i].id === root.editRoomId) selectedIndex = i
+      }
+      if (root.editRoomId && selectedIndex < 0) {
+        editRoomId = ""
+        editRoomName = ""
+        editRoomGoal = ""
+        deleteArmed = false
+      } else if (selectedIndex >= 0) {
+        selectedRoom = selectedIndex
+      } else if (root.rooms.length === 0) {
+        selectedRoom = 0
+      } else if (selectedRoom >= root.rooms.length) {
+        selectedRoom = root.rooms.length - 1
+      }
       var s = house.settings || {}
       if (root.settingsHydrated) return
       root.settingsHydrated = true
@@ -243,6 +273,7 @@ Item {
       return
     }
     var args = ["create-room", "--name", formName.trim(), "--goal", formGoal.trim(), "--cwd", formCwd.trim() || (Quickshell.env("HOME") + "/Work"), "--roles", roles.join(",")]
+    if (formWorkspace.trim()) args = args.concat(["--workspace", formWorkspace.trim()])
     if (formProgram.trim()) args = args.concat(["--harness", formProgram.trim()])
     if (formCoordinator) args = args.concat(["--seat", "coordinator=" + formHCoordinator + ":" + formTCoordinator])
     if (formBuilder) args = args.concat(["--seat", "builder=" + formHBuilder + ":" + formTBuilder])
@@ -260,6 +291,7 @@ Item {
     editRoomId = selected.id || ""
     editRoomName = selected.name || ""
     editRoomGoal = selected.goal || ""
+    editRoomWorkspace = selected.workspace || root.settingsWorkspace || "agent-house"
     deleteArmed = false
   }
 
@@ -268,7 +300,7 @@ Item {
       lastError = "Team name and goal are required"
       return
     }
-    runCli(["update-room", editRoomId, "--name", editRoomName.trim(), "--goal", editRoomGoal.trim()])
+    runCli(["update-room", editRoomId, "--name", editRoomName.trim(), "--goal", editRoomGoal.trim(), "--workspace", editRoomWorkspace.trim()])
   }
 
   function deleteSelectedRoom() {
@@ -282,7 +314,17 @@ Item {
     editRoomId = ""
     editRoomName = ""
     editRoomGoal = ""
+    editRoomWorkspace = ""
     deleteArmed = false
+  }
+
+  function runMaintenance(action) {
+    if (pendingMaintenance !== action) {
+      pendingMaintenance = action
+      return
+    }
+    pendingMaintenance = ""
+    runCli([action])
   }
 
   function saveSettings() {
@@ -424,7 +466,7 @@ Item {
       PanelKeyCatcher {
         id: keyCatcher
         anchors.fill: parent
-        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || composeField.activeFocus || programField.activeFocus
+        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || workspaceField.activeFocus || programField.activeFocus || roomFilterField.activeFocus || editNameField.activeFocus || editGoalField.activeFocus || editWorkspaceField.activeFocus || composeField.activeFocus
         onCloseRequested: root.requestClose()
         onActivateRequested: {}
 
@@ -510,6 +552,13 @@ Item {
             wrapMode: Text.Wrap
             text: root.lastError
             color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Text {
+            visible: cli.running
+            text: "Working… house state will refresh when the command finishes."
+            color: root.accent
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
@@ -795,6 +844,15 @@ Item {
                   text: root.formCwd
                   onTextChanged: root.formCwd = text
                 }
+                Text { text: "TERMINAL WORKSPACE"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  id: workspaceField
+                  width: parent.width
+                  placeholderText: root.settingsWorkspace || "agent-house"
+                  text: root.formWorkspace
+                  onTextChanged: root.formWorkspace = text
+                }
+                Text { width: parent.width; wrapMode: Text.Wrap; text: "Hyprland workspace number or name, such as 2, 4, or name:dev. Leave blank to use the default workspace."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                 Text { text: "PROGRAM (blank = default agent)"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
                   id: programField
@@ -849,19 +907,38 @@ Item {
                   Button { text: "Create and start"; bordered: true; onClicked: { root.startAfterCreate = true; root.createRoom() } }
                 }
 
-                PanelSectionHeader { text: "ROOMS"; foreground: root.foreground }
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  PanelSectionHeader { text: "ROOMS  ·  " + root.rooms.length; foreground: root.foreground }
+                  Item { width: Math.max(0, parent.width - 190); height: 1 }
+                  Button { text: "Refresh"; bordered: true; onClicked: root.reloadHouse() }
+                }
+                TextField {
+                  id: roomFilterField
+                  width: parent.width
+                  placeholderText: "Filter teams by name, goal, or status…"
+                  text: root.roomFilter
+                  onTextChanged: root.roomFilter = text
+                }
                 Repeater {
-                  model: root.rooms
+                  model: root.filteredRooms
                   delegate: Button {
                     required property var modelData
-                    required property int index
                     width: parent.width
                     leftAlign: true
                     bordered: true
-                    selected: root.selectedRoom === index
-                    text: (modelData.name || "") + "  ·  " + (modelData.status || "idle") + "  ·  " + ((modelData.roles || []).length) + " seats"
-                    onClicked: root.selectRoomForEdit(index)
+                    selected: root.selectedRoom === modelData.index
+                    text: (modelData.room.name || "") + "  ·  " + (modelData.room.status || "idle") + "  ·  " + ((modelData.room.roles || []).length) + " seats\n" + (modelData.room.goal || "")
+                    onClicked: root.selectRoomForEdit(modelData.index)
                   }
+                }
+                Text {
+                  visible: root.rooms.length > 0 && root.filteredRooms.length === 0
+                  text: "No teams match this filter."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
                 }
                 Column {
                   visible: !!root.editRoomId
@@ -869,16 +946,25 @@ Item {
                   spacing: Style.space(8)
                   PanelSectionHeader { text: "EDIT SELECTED TEAM"; foreground: root.foreground }
                   TextField {
+                    id: editNameField
                     width: parent.width
                     placeholderText: "Team name"
                     text: root.editRoomName
                     onTextChanged: root.editRoomName = text
                   }
                   TextField {
+                    id: editGoalField
                     width: parent.width
                     placeholderText: "Team goal"
                     text: root.editRoomGoal
                     onTextChanged: root.editRoomGoal = text
+                  }
+                  TextField {
+                    id: editWorkspaceField
+                    width: parent.width
+                    placeholderText: "Terminal workspace (2, 4, or name:dev)"
+                    text: root.editRoomWorkspace
+                    onTextChanged: root.editRoomWorkspace = text
                   }
                   Text {
                     width: parent.width
@@ -888,7 +974,8 @@ Item {
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                   }
-                  Row {
+                  Flow {
+                    width: parent.width
                     spacing: Style.space(8)
                     Button { text: "Save changes"; bordered: true; onClicked: root.editSelectedRoom() }
                     Button { text: "Open chat"; bordered: true; onClicked: root.tab = "teams" }
@@ -1159,6 +1246,12 @@ Item {
                   font.family: root.fontFamily
                   text: "No rooms yet. Open the House tab and create one."
                 }
+                Button {
+                  visible: !root.room
+                  text: "Create your first room"
+                  bordered: true
+                  onClicked: root.tab = "house"
+                }
               }
 
               // ---------- SETTINGS ----------
@@ -1188,10 +1281,11 @@ Item {
                 }
                 Button { text: "Save settings"; bordered: true; onClicked: root.saveSettings() }
                 Text { text: "DANGER ZONE"; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; topPadding: Style.space(10) }
-                Text { width: parent.width; wrapMode: Text.Wrap; text: "Clear messages removes MCP Mail and help-board posts. Reset house removes rooms, work, and claims but keeps these settings."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-                Row { spacing: Style.space(8)
-                  Button { text: "Clear all messages"; bordered: true; onClicked: root.runCli(["clear-messages"]) }
-                  Button { text: "Reset house"; bordered: true; onClicked: root.runCli(["reset-house"]) }
+                Text { width: parent.width; wrapMode: Text.Wrap; text: root.pendingMaintenance !== "" ? "Click the action again to confirm. This cannot be undone." : "Clear messages removes MCP Mail and help-board posts. Reset house removes rooms, work, and claims but keeps these settings."; color: root.pendingMaintenance !== "" ? root.urgent : root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                Flow { width: parent.width; spacing: Style.space(8)
+                  Button { text: root.pendingMaintenance === "clear-messages" ? "Confirm clear messages" : "Clear all messages"; bordered: true; onClicked: root.runMaintenance("clear-messages") }
+                  Button { text: root.pendingMaintenance === "reset-house" ? "Confirm reset house" : "Reset house"; bordered: true; onClicked: root.runMaintenance("reset-house") }
+                  Button { visible: root.pendingMaintenance !== ""; text: "Cancel"; bordered: true; onClicked: root.pendingMaintenance = "" }
                 }
 
                 PanelSectionHeader { text: "HERMES CONNECTION"; foreground: root.foreground }

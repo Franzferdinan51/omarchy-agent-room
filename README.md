@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.3.0** — native console with model selection, team editing, and Settings maintenance actions.
+Current release: **1.4.0** — native console with model selection, team management, filtering, and safer maintenance actions.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -17,10 +17,12 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Models** — choose from every model configured in Grok Build, plus its fetched model catalog; new seats inherit it and launch with `--model`
 - **House maintenance** — Settings includes Clear all messages and Reset house actions
 - **Team management** — House can edit a team's name or goal, or delete a team and its associated mail, work, claims, plan, and context
+- **Quality of life** — filter rooms by name, goal, or status; see goals directly in the room list; refresh on demand; get visible busy/empty-state guidance; and choose each team's terminal workspace
+- **Safer maintenance** — destructive team, message, and house-reset actions require a confirmation click
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide
-- **Launch** — start a room and each seat opens in a terminal on the `agent-house` Hyprland workspace
+- **Launch** — start a room and each seat opens in a terminal on that team's selected Hyprland workspace (with `agent-house` as the default)
 
 ## Install on Omarchy 4
 
@@ -49,8 +51,8 @@ or click the robot icon on the bar.
 
 ## How a room runs
 
-1. House tab → name, goal, working directory, seats → **Create and start**
-2. Each seat opens in your default terminal with a briefing that tells it to use MCP Mail and the help board
+1. House tab → name, goal, working directory, terminal workspace, seats → **Create and start**
+2. Each seat opens in your default terminal on that team's selected Hyprland workspace with a briefing that tells it to use MCP Mail and the help board. Use a number (`2`, `4`) or a name (`dev`; `name:dev` also works).
 3. Teams tab follows Room Mail as one chat
 4. **REVIEW** asks the coordinator to synthesize and the reviewer/judge to check
 
@@ -75,8 +77,10 @@ State file: `~/.local/state/omarchy/agent-room/house.json`
 ```bash
 agent-room init
 agent-room create-room --name Superprompt --goal "Dissect SuperPrompt" --cwd ~/Work/superprompt
+agent-room create-room --name Research --goal "Compare approaches" --workspace 4
 agent-room start-room <room-id>
 agent-room update-room <room-id> --goal "A revised goal"
+agent-room update-room <room-id> --workspace name:dev
 agent-room delete-room <room-id>
 agent-room send --room <id> --from operator --to '*' --body 'ship it'
 agent-room board-post --room <id> --author operator --title Help --body '...'

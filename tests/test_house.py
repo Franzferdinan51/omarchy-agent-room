@@ -41,6 +41,37 @@ class HouseTests(unittest.TestCase):
         self.assertIn("claimed", inbox[0]["body"].lower())
         self.assertEqual(msg["from"], "Reviewer")
 
+    def test_room_names_must_be_unique_and_slug_safe(self):
+        first = self.house.mutate(
+            lambda d: ar.create_room(d, "Build Team", "Ship it", str(self.dir), ["builder"], "codex")
+        )
+        self.assertEqual(first["slug"], "build-team")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.house.mutate(
+                lambda d: ar.create_room(d, " build-team ", "Another goal", str(self.dir), ["builder"], "codex")
+            )
+        second = self.house.mutate(
+            lambda d: ar.create_room(d, "Review Team", "Review it", str(self.dir), ["reviewer"], "codex")
+        )
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.house.mutate(lambda d: ar.update_room(d, first["id"], name=second["name"].replace(" ", "-")))
+
+    def test_room_update_rejects_empty_fields(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Draft", "Old goal", str(self.dir), ["builder"], "codex")
+        )
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            self.house.mutate(lambda d: ar.update_room(d, room["id"], goal="   "))
+        self.assertEqual(self.house.snapshot()["rooms"][0]["goal"], "Old goal")
+
+    def test_room_workspace_is_persisted_and_editable(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Workspace Team", "Use workspace four", str(self.dir), ["builder"], "codex", workspace="4")
+        )
+        self.assertEqual(room["workspace"], "4")
+        updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], workspace="name:dev"))
+        self.assertEqual(updated["workspace"], "name:dev")
+
     def test_board_and_work_and_claims(self):
         room = self.house.mutate(
             lambda d: ar.create_room(d, "Build", "Ship it", str(self.dir), ["builder", "judge"], "codex")
