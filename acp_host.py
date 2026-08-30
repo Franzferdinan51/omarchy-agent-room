@@ -87,6 +87,11 @@ def _read_json_line(proc: subprocess.Popen, timeout: float = 30.0) -> dict[str, 
 
 def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[str, str]) -> int:
     argv = hx.acp_argv(harness_id)
+    if harness_id == "grok" and argv[:1] == ["grok"]:
+        argv = ["grok", "--permission-mode", "bypassPermissions"] + argv[1:]
+        model = str(env.get("AGENT_ROOM_MODEL") or "").strip()
+        if model:
+            argv[1:1] = ["--model", model]
     log_path.parent.mkdir(parents=True, exist_ok=True)
     _log(log_path, {"type": "spawn", "argv": argv, "cwd": cwd, "harness": harness_id})
     proc = subprocess.Popen(
@@ -117,13 +122,33 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         _close_proc(proc)
         return 2
     _send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+    next_id = 2
+    auth_methods = init.get("result", {}).get("authMethods") or []
+    if any(isinstance(method, dict) and method.get("id") == "cached_token" for method in auth_methods):
+        _send(proc, {"jsonrpc": "2.0", "id": next_id, "method": "authenticate", "params": {"methodId": "cached_token"}})
+        auth = _read_json_line(proc, 20)
+        _log(log_path, {"type": "rpc", "dir": "in", "payload": auth})
+        if not auth or auth.get("error"):
+            _log(log_path, {"type": "error", "message": "ACP authentication failed"})
+            _close_proc(proc)
+            return 2
+        next_id += 1
+    session_id_request = next_id
     _send(
         proc,
         {
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": session_id_request,
             "method": "session/new",
-            "params": {"cwd": cwd, "mcpServers": []},
+            "params": {
+                "cwd": cwd,
+                "mcpServers": [{
+                    "name": "agent-room",
+                    "command": str(Path(__file__).resolve().with_name("bin") / "agent-room"),
+                    "args": ["mcp"],
+                    "env": [{"name": key, "value": value} for key, value in env.items() if key.startswith("AGENT_ROOM_")],
+                }],
+            },
         },
     )
     session = None
@@ -132,10 +157,10 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         if msg is None:
             break
         _log(log_path, {"type": "rpc", "dir": "in", "payload": msg})
-        if msg.get("id") == 2 and "result" in msg:
+        if msg.get("id") == session_id_request and "result" in msg:
             session = msg["result"]
             break
-        if msg.get("error") and msg.get("id") == 2:
+        if msg.get("error") and msg.get("id") == session_id_request:
             _log(log_path, {"type": "error", "message": msg["error"]})
             _close_proc(proc)
             return 2
@@ -146,15 +171,17 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         _log(log_path, {"type": "error", "message": "ACP session/new did not return sessionId"})
         _close_proc(proc)
         return 3
+    prompt_id = session_id_request + 1
     _send(
         proc,
         {
             "jsonrpc": "2.0",
-            "id": 3,
+            "id": prompt_id,
             "method": "session/prompt",
             "params": {
                 "sessionId": session_id,
                 "prompt": [{"type": "text", "text": prompt}],
+                "_meta": {"mode": "agent"},
             },
         },
     )
@@ -169,7 +196,7 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
             continue
         idle_rounds = 0
         _log(log_path, {"type": "rpc", "dir": "in", "payload": msg})
-        if msg.get("id") == 3:
+        if msg.get("id") == prompt_id:
             break
     _log(log_path, {"type": "done", "returncode": proc.poll()})
     _close_proc(proc)

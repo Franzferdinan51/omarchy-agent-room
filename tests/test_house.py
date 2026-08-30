@@ -82,9 +82,14 @@ class HouseTests(unittest.TestCase):
             "import json, sys\n"
             "for line in sys.stdin:\n"
             "    msg = json.loads(line)\n"
-            "    if msg.get('id') == 1: print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1}}), flush=True)\n"
-            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{'sessionId':'fake-session'}}), flush=True)\n"
-            "    elif msg.get('id') == 3: print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
+            "    if msg.get('id') == 1: print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1,'authMethods':[{'id':'cached_token'}]}}), flush=True)\n"
+            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{}}), flush=True)\n"
+            "    elif msg.get('id') == 3:\n"
+            "        assert msg['params']['mcpServers'][0]['name'] == 'agent-room'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'sessionId':'fake-session'}}), flush=True)\n"
+            "    elif msg.get('id') == 4:\n"
+            "        assert msg['params']['_meta']['mode'] == 'agent'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':4,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
             encoding="utf-8",
         )
         log = self.dir / "acp.jsonl"
@@ -92,7 +97,7 @@ class HouseTests(unittest.TestCase):
             result = acp_host.run_seat("fake", str(self.dir), "hello", log, os.environ.copy())
         self.assertEqual(result, 0)
         events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-        self.assertTrue(any(event.get("payload", {}).get("id") == 3 for event in events))
+        self.assertTrue(any(event.get("payload", {}).get("id") == 4 for event in events))
 
     def test_room_names_must_be_unique_and_slug_safe(self):
         first = self.house.mutate(

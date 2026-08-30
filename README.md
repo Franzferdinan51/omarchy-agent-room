@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.5.2** — native console with model selection, team management, Telegram connector, pairing controls, ACP hardening, and reliable connector shutdown.
+Current release: **1.6.0** — native console with model selection, team management, Telegram connector, shared MCP/ACP Mail, pairing controls, and reliable connector shutdown.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -13,6 +13,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
 - **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
 - **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
+- **Shared MCP/ACP Mail** — every TUI and ACP seat receives the same Agent Room MCP server, so Grok, Codex, Claude, Hermes, and other harnesses can exchange Mail, coordinate goals, claim files, and use the help board together
 - **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
 - **Telegram** — connect a BotFather bot to a selected team with secure token storage, long polling, pairing approval, and replies through the Agent Room connector
 - **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
@@ -72,6 +73,7 @@ The server is `bin/agent-room mcp` (JSON-RPC stdio, no port).
 | `claim_paths` / `release_claim` | Advisory file leases |
 | `plan_add` / `context_write` | Plan + context tabs |
 | `whoami` / `house_status` | Seat identity + snapshot |
+| `telegram_status` / `telegram_send` | Masked connector status + Telegram replies |
 
 State file: `~/.local/state/omarchy/agent-room/house.json`
 
@@ -108,3 +110,5 @@ In Settings, choose the destination team, save/test the token, and connect. New 
 The token is never written to `house.json`, console snapshots, logs, or this repository. Agent Room uses `secret-tool` when available. If no desktop keyring is available, it uses `~/.local/state/omarchy/agent-room/telegram.token` with mode `0600`; use **Forget token** to remove it. Pending and approved chat metadata is local state and should not be copied into GitHub.
 
 Troubleshooting: use `agent-room telegram-test` to validate the token and `agent-room telegram-status` to inspect polling state. If Telegram reports a conflict, stop any other bot process using the token, then reconnect. If a request is stuck, pause and reconnect; the update offset is persisted locally to avoid duplicate delivery.
+
+ACP seats receive the same `agent-room` MCP server during `session/new`, including their `AGENT_ROOM_ID` and role identity. That is the shared Mail bridge: ACP is the harness transport, while MCP is the shared coordination surface. The integration follows the ACP model where a client supplies trusted MCP server configuration to an external harness; OpenClaw is not required. See the [ACP architecture](https://agentclientprotocol.com/get-started/architecture) and the [Grok Build ACP implementation](https://github.com/Franzferdinan51/Grok-Build-Desktop-App/blob/main/packages/desktop/src/main/grok-acp.ts) for the concepts this adapts.

@@ -25,7 +25,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.5.2"
+VERSION = "1.6.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
