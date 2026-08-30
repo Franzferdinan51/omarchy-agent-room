@@ -6,6 +6,7 @@
   "author": "Franzferdinan51",
   "license": "MIT",
   "description": "Native Omarchy Agent Console: create rooms of coding agents, MCP Mail between them, and a help message board. No web server.",
+  "icon": "icon.svg",
   "kinds": ["bar-widget", "panel"],
   "activation": "on-demand",
   "keepLoaded": true,
@@ -19,6 +20,7 @@
     "category": "AI",
     "aliases": ["agent-room", "agent-console", "teams", "mcp-mail"],
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "icon": "icon.svg"
   }
 }

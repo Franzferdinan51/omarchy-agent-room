@@ -62,7 +62,7 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰪣"
+    text: "⌁"
     active: root.live || root.unread > 0
     slotSize: Style.bar.statusSlot
     tooltipText: root.unread > 0

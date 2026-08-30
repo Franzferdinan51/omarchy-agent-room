@@ -30,7 +30,7 @@ Local checkout (this is what this machine runs):
 cd ~/Projects/omarchy-agent-room && ./install.sh
 ```
 
-Open: `omarchy-shell shell toggle io.github.franzferdinan51.agent-room '{}'` or the bar robot icon.
+Open: `omarchy-shell shell toggle io.github.franzferdinan51.agent-room '{}'` or the Agent Room icon on the bar. The console includes a Settings tab for the default harness, seat workspace, and compact navigation preference.
 
 ## Transports
 
