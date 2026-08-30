@@ -226,6 +226,21 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(snap["claims"][0]["path"], "tests/test_house.py")
         self.assertTrue(any(h["title"] == "Help requested" for h in snap["health"]))
 
+    def test_operator_context_plan_and_work_lifecycle(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Operations", "Run the workflow", str(self.dir), ["builder"], "codex")
+        )
+        context = self.house.mutate(lambda d: ar.add_context(d, room["id"], "operator", "Prioritize the release notes."))
+        plan = self.house.mutate(lambda d: ar.add_plan(d, room["id"], "operator", "Review the release checklist"))
+        work = self.house.mutate(lambda d: ar.create_work(d, room["id"], "Release", "Prepare the release", "operator"))
+        self.house.mutate(lambda d: ar.complete_plan(d, plan["id"]))
+        self.house.mutate(lambda d: ar.claim_work(d, work["id"], "Builder"))
+        self.house.mutate(lambda d: ar.complete_work(d, work["id"], "Builder", "Publish the notes"))
+        snap = self.house.snapshot()
+        self.assertEqual(snap["context"][0]["id"], context["id"])
+        self.assertEqual(snap["plan"][0]["status"], "completed")
+        self.assertEqual(snap["work"][0]["status"], "completed")
+
     def test_mcp_tools_call(self):
         room = ar.call_tool(
             "room_create",

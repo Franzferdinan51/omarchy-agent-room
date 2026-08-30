@@ -43,6 +43,11 @@ Item {
   property string formTCreative: "tui"
   property string lastError: ""
   property string composeText: ""
+  property string contextDraft: ""
+  property string planDraft: ""
+  property string workTitleDraft: ""
+  property string workBriefDraft: ""
+  property string commandFilter: ""
   property bool startAfterCreate: false
   property string settingsDefaultHarness: "grok"
   property string settingsDefaultModel: ""
@@ -231,6 +236,11 @@ Item {
 
   function reloadHouse() {
     houseFile.reload()
+  }
+
+  function refreshModels() {
+    modelDiscovery.running = false
+    modelDiscovery.running = true
   }
 
   function parseHouse(raw) {
@@ -442,6 +452,25 @@ Item {
     if (!room || !composeText.trim()) return
     runCli(["send", "--room", room.id, "--from", "operator", "--to", "*", "--subject", "Operator", "--body", composeText.trim()])
     composeText = ""
+  }
+
+  function addContext() {
+    if (!room || !contextDraft.trim()) return
+    runCli(["context-write", "--room", room.id, "--author", "operator", "--text", contextDraft.trim()])
+    contextDraft = ""
+  }
+
+  function addPlan() {
+    if (!room || !planDraft.trim()) return
+    runCli(["plan-add", "--room", room.id, "--author", "operator", "--text", planDraft.trim()])
+    planDraft = ""
+  }
+
+  function createWork() {
+    if (!room || !workTitleDraft.trim() || !workBriefDraft.trim()) return
+    runCli(["create-work", "--room", room.id, "--title", workTitleDraft.trim(), "--brief", workBriefDraft.trim(), "--owner", "operator"])
+    workTitleDraft = ""
+    workBriefDraft = ""
   }
 
   FileView {
@@ -656,6 +685,8 @@ Item {
                   Button { text: "Create room"; bordered: true; onClicked: root.tab = "house" }
                   Button { text: "Open Teams"; bordered: true; onClicked: root.tab = "teams" }
                   Button { text: "Review room"; bordered: true; onClicked: root.reviewRoom() }
+                  Button { text: "Stop all"; bordered: true; enabled: root.stats.running > 0; onClicked: root.runMaintenance("stop-all") }
+                  Button { text: "Refresh"; bordered: true; onClicked: root.reloadHouse() }
                   Button { text: "Settings"; bordered: true; onClicked: root.tab = "settings" }
                 }
                 PanelSectionHeader { text: "HERMES"; foreground: root.foreground }
@@ -691,6 +722,11 @@ Item {
                 width: parent.width
                 spacing: Style.space(10)
                 PanelSectionHeader { text: "HEALTH"; foreground: root.foreground }
+                Row {
+                  spacing: Style.space(8)
+                  Button { text: "Refresh health"; bordered: true; onClicked: root.reloadHouse() }
+                  Button { text: "Stop all teams"; bordered: true; enabled: root.stats.running > 0; onClicked: root.runMaintenance("stop-all") }
+                }
                 Repeater {
                   model: root.house.health || []
                   delegate: Rectangle {
@@ -740,8 +776,13 @@ Item {
                 width: parent.width
                 spacing: Style.space(8)
                 PanelSectionHeader { text: "COMMAND LOG"; foreground: root.foreground }
+                Row {
+                  spacing: Style.space(8)
+                  TextField { width: parent.width - 110; placeholderText: "Filter commands…"; text: root.commandFilter; onTextChanged: root.commandFilter = text }
+                  Button { text: "Clear"; bordered: true; onClicked: root.runMaintenance("clear-commands") }
+                }
                 Repeater {
-                  model: (root.house.cmds || []).slice().reverse()
+                  model: (root.house.cmds || []).slice().reverse().filter(function(item) { return !root.commandFilter.trim() || ((item.cmd || "") + " " + (item.agent || "")).toLowerCase().indexOf(root.commandFilter.trim().toLowerCase()) >= 0 })
                   delegate: Text {
                     required property var modelData
                     width: parent.width
@@ -760,6 +801,12 @@ Item {
                 width: parent.width
                 spacing: Style.space(8)
                 PanelSectionHeader { text: "CONTEXT"; foreground: root.foreground }
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  TextField { width: parent.width - 100; placeholderText: "Add an operator context note…"; text: root.contextDraft; onTextChanged: root.contextDraft = text; Keys.onReturnPressed: root.addContext() }
+                  Button { text: "Add"; bordered: true; onClicked: root.addContext() }
+                }
                 Repeater {
                   model: root.house.context || []
                   delegate: Rectangle {
@@ -804,19 +851,24 @@ Item {
                 width: parent.width
                 spacing: Style.space(8)
                 PanelSectionHeader { text: "PLAN"; foreground: root.foreground }
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  TextField { width: parent.width - 100; placeholderText: "Add a plan step…"; text: root.planDraft; onTextChanged: root.planDraft = text; Keys.onReturnPressed: root.addPlan() }
+                  Button { text: "Add"; bordered: true; onClicked: root.addPlan() }
+                }
                 Repeater {
-                  model: root.house.plan || []
-                  delegate: Text {
+                  model: root.room ? (root.house.plan || []).filter(function(item) { return item.room_id === root.room.id }) : []
+                  delegate: Row {
                     required property var modelData
                     width: parent.width
-                    wrapMode: Text.Wrap
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    text: "•  " + (modelData.text || "")
+                    spacing: Style.space(8)
+                    Text { width: parent.width - 120; wrapMode: Text.Wrap; color: modelData.status === "completed" ? root.dim : root.foreground; font.family: root.fontFamily; text: (modelData.status === "completed" ? "✓  " : "•  ") + (modelData.text || "") }
+                    Button { visible: modelData.status !== "completed"; text: "Done"; bordered: true; onClicked: root.runCli(["plan-complete", modelData.id]) }
                   }
                 }
                 Text {
-                  visible: (root.house.plan || []).length === 0
+                  visible: root.room && !(root.house.plan || []).some(function(item) { return item.room_id === root.room.id })
                   text: "No plan items yet. Agents can call plan_add."
                   color: root.dim
                   font.family: root.fontFamily
@@ -829,6 +881,13 @@ Item {
                 width: parent.width
                 spacing: Style.space(12)
                 PanelSectionHeader { text: "AGENT WORKBENCH"; foreground: root.foreground }
+                TextField { width: parent.width; placeholderText: "Task title"; text: root.workTitleDraft; onTextChanged: root.workTitleDraft = text }
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  TextField { width: parent.width - 100; placeholderText: "Task brief"; text: root.workBriefDraft; onTextChanged: root.workBriefDraft = text; Keys.onReturnPressed: root.createWork() }
+                  Button { text: "Create task"; bordered: true; onClicked: root.createWork() }
+                }
                 StatsRow {
                   width: parent.width
                   items: [
@@ -846,15 +905,12 @@ Item {
                 }
                 Repeater {
                   model: root.tab === "work" ? root.roomWork : []
-                  delegate: Capsule {
+                  delegate: Column {
                     required property var modelData
                     width: parent.width
-                    title: modelData.title || ""
-                    body: modelData.brief || ""
-                    nextLine: modelData.next || ""
-                    footer: (modelData.cwd || "") + "    " + (modelData.files || 0) + " FILES  ·  " + (modelData.claims || 0) + " CLAIMS"
-                    statusText: ((modelData.status || "") + "  ·  " + (modelData.owner || "")).toUpperCase()
-                    statusColor: modelData.status === "active" ? root.accent : root.dim
+                    spacing: Style.space(6)
+                    Capsule { width: parent.width; title: modelData.title || ""; body: modelData.brief || ""; nextLine: modelData.next || ""; footer: (modelData.cwd || "") + "    " + (modelData.files || 0) + " FILES  ·  " + (modelData.claims || 0) + " CLAIMS"; statusText: ((modelData.status || "") + "  ·  " + (modelData.owner || "")).toUpperCase(); statusColor: modelData.status === "active" ? root.accent : root.dim }
+                    Flow { width: parent.width; spacing: Style.space(8); Button { text: "Claim"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["claim-work", modelData.id, "--agent", "operator"]) }; Button { text: "Complete"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["complete-work", modelData.id, "--agent", "operator"]) } }
                   }
                 }
                 Text {

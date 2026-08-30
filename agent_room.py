@@ -903,6 +903,16 @@ def add_plan(data: dict[str, Any], room_id: str, author: str, text: str) -> dict
     return item
 
 
+def complete_plan(data: dict[str, Any], plan_id: str, author: str = "operator") -> dict[str, Any]:
+    for item in data.get("plan") or []:
+        if item.get("id") == plan_id:
+            item["status"] = "completed"
+            item["completed_at"] = now_iso()
+            log_cmd(data, author, f"plan-complete {plan_id}", "ok")
+            return item
+    raise KeyError(f"plan item not found: {plan_id}")
+
+
 def add_context(data: dict[str, Any], room_id: str, author: str, text: str) -> dict[str, Any]:
     room = find_room(data, room_id)
     item = {
@@ -1169,6 +1179,31 @@ def stop_room(house: House, room_id: str) -> dict[str, Any]:
         return r
 
     return house.mutate(_stop)
+
+
+def stop_all_rooms(house: House) -> dict[str, Any]:
+    def _stop_all(current: dict[str, Any]) -> dict[str, Any]:
+        stopped = 0
+        for room in current.get("rooms") or []:
+            for role in room.get("roles") or []:
+                terminate_process(int(role.get("pid") or 0))
+                close_seat_windows(room["id"], role)
+                if role.get("status") == "running":
+                    stopped += 1
+                role["status"] = "idle"
+                role["pid"] = 0
+            room["status"] = "idle"
+        log_cmd(current, "operator", "stop-all", "ok")
+        return {"stopped": stopped}
+    return house.mutate(_stop_all)
+
+
+def clear_commands(house: House) -> dict[str, Any]:
+    def _clear(current: dict[str, Any]) -> dict[str, Any]:
+        count = len(current.get("cmds") or [])
+        current["cmds"] = []
+        return {"cleared": count}
+    return house.mutate(_clear)
 
 
 # ---------------------------------------------------------------------------
@@ -1885,6 +1920,25 @@ def cli(argv: list[str] | None = None) -> int:
     p_work.add_argument("--owner", default="")
     p_work.add_argument("--next", default="")
 
+    p_context = sub.add_parser("context-write")
+    p_context.add_argument("--room", required=True)
+    p_context.add_argument("--text", required=True)
+    p_context.add_argument("--author", default="operator")
+    p_plan = sub.add_parser("plan-add")
+    p_plan.add_argument("--room", required=True)
+    p_plan.add_argument("--text", required=True)
+    p_plan.add_argument("--author", default="operator")
+    p_plan_done = sub.add_parser("plan-complete")
+    p_plan_done.add_argument("plan_id")
+    p_plan_done.add_argument("--author", default="operator")
+    p_work_claim = sub.add_parser("claim-work")
+    p_work_claim.add_argument("work_id")
+    p_work_claim.add_argument("--agent", default="operator")
+    p_work_done = sub.add_parser("complete-work")
+    p_work_done.add_argument("work_id")
+    p_work_done.add_argument("--agent", default="operator")
+    p_work_done.add_argument("--next", default="")
+
     p_hide = sub.add_parser("set-monitor")
     p_hide.add_argument("room_id")
     p_hide.add_argument("--hidden", choices=["true", "false"], required=True)
@@ -1892,6 +1946,8 @@ def cli(argv: list[str] | None = None) -> int:
     p_review = sub.add_parser("review")
     p_review.add_argument("--room", default="")
     sub.add_parser("clear-messages", help="Clear all MCP Mail and help-board messages")
+    sub.add_parser("clear-commands", help="Clear the operator command log")
+    sub.add_parser("stop-all", help="Stop every running seat and close its terminal")
     sub.add_parser("reset-house", help="Reset rooms, messages, work, and claims while keeping settings")
 
     sub.add_parser("harnesses", help="List harnesses and ACP adapters")
@@ -2019,6 +2075,21 @@ def cli(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.cmd == "context-write":
+        print_json(house.mutate(lambda d: add_context(d, args.room, args.author, args.text)))
+        return 0
+    if args.cmd == "plan-add":
+        print_json(house.mutate(lambda d: add_plan(d, args.room, args.author, args.text)))
+        return 0
+    if args.cmd == "plan-complete":
+        print_json(house.mutate(lambda d: complete_plan(d, args.plan_id, args.author)))
+        return 0
+    if args.cmd == "claim-work":
+        print_json(house.mutate(lambda d: claim_work(d, args.work_id, args.agent)))
+        return 0
+    if args.cmd == "complete-work":
+        print_json(house.mutate(lambda d: complete_work(d, args.work_id, args.agent, args.next)))
+        return 0
     if args.cmd == "harnesses":
         print_json({"harnesses": hx.detect(), "acp": connectors.acp_catalog()})
         return 0
@@ -2068,6 +2139,12 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "reset-house":
         print_json(reset_house(house))
+        return 0
+    if args.cmd == "clear-commands":
+        print_json(clear_commands(house))
+        return 0
+    if args.cmd == "stop-all":
+        print_json(stop_all_rooms(house))
         return 0
     if args.cmd == "set-settings":
         patch: dict[str, Any] = {}
