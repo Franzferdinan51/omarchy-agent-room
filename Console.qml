@@ -545,8 +545,8 @@ Item {
 
     FocusScope {
       id: focusScope
-      width: window.width
-      height: window.height
+      width: 980
+      height: 860
       implicitWidth: 980
       implicitHeight: 860
       focus: true
