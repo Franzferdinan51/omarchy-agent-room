@@ -28,35 +28,5 @@ if ! command -v omarchy-launch-tui >/dev/null 2>&1; then
   launch_tui=(xdg-terminal-exec --app-id="org.omarchy.agent-room.${ROLE}" -e)
 fi
 
-case "$PROGRAM" in
-  grok)
-    exec "${launch_tui[@]}" grok --permission-mode bypassPermissions -- "$PROMPT"
-    ;;
-  codex)
-    exec "${launch_tui[@]}" codex --approve-for-me -- "$PROMPT"
-    ;;
-  claude)
-    exec "${launch_tui[@]}" claude --permission-mode auto -- "$PROMPT"
-    ;;
-  opencode)
-    exec "${launch_tui[@]}" opencode --auto --prompt "$PROMPT"
-    ;;
-  gemini)
-    exec "${launch_tui[@]}" gemini --yolo --prompt-interactive "$PROMPT"
-    ;;
-  copilot)
-    exec "${launch_tui[@]}" copilot --allow-all --interactive "$PROMPT"
-    ;;
-  crush)
-    exec "${launch_tui[@]}" crush run "$PROMPT"
-    ;;
-  omp)
-    exec "${launch_tui[@]}" omp --auto-approve -- "$PROMPT"
-    ;;
-  pi)
-    exec "${launch_tui[@]}" pi "$PROMPT"
-    ;;
-  *)
-    exec "${launch_tui[@]}" "$PROGRAM" -- "$PROMPT"
-    ;;
-esac
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "${launch_tui[@]}" python3 "$ROOT/agent_room.py" exec-seat "$PROGRAM" "$PROMPT"

@@ -6,8 +6,12 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 
 ## What you get
 
-- **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams
+- **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams, Settings
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
+- **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
+- **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
+- **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
+- **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide
@@ -20,53 +24,33 @@ omarchy plugin add https://github.com/Franzferdinan51/omarchy-agent-room.git --e
 ~/.config/omarchy/plugins/io.github.franzferdinan51.agent-room/install.sh
 ```
 
-Or from this checkout:
+Local checkout (this is what this machine runs):
 
 ```bash
-git clone https://github.com/Franzferdinan51/omarchy-agent-room.git
-cd omarchy-agent-room
-./install.sh
+cd ~/Projects/omarchy-agent-room && ./install.sh
 ```
 
-`install.sh` validates the plugin, enables the bar icon, seeds `~/.local/state/omarchy/agent-room/house.json`, copies the agent skill, and registers the **stdio** MCP server in Grok, Codex, and Claude config if those CLIs exist.
+Open: `omarchy-shell shell toggle io.github.franzferdinan51.agent-room '{}'` or the bar robot icon.
 
-Open the console:
+## Transports
 
-```bash
-omarchy-shell shell toggle io.github.franzferdinan51.agent-room '{}'
-```
-
-or click the robot icon on the bar.
-
-## How a room runs
-
-1. House tab → name, goal, working directory, seats → **Create and start**
-2. Each seat opens in your default terminal with a briefing that tells it to use MCP Mail and the help board
-3. Teams tab follows Room Mail as one chat
-4. **REVIEW** asks the coordinator to synthesize and the reviewer/judge to check
-
-## MCP tools
-
-The server is `bin/agent-room mcp` (JSON-RPC stdio, no port).
-
-| Tool | Use |
+| Mode | What happens |
 |---|---|
-| `room_create` / `room_start` / `room_list` | Rooms |
-| `send_mail` / `fetch_inbox` / `reply_mail` | MCP Mail |
-| `ask_help` / `board_list` / `board_reply` | Message board |
-| `create_work` / `claim_work` / `complete_work` | Task capsules |
-| `claim_paths` / `release_claim` | Advisory file leases |
-| `plan_add` / `context_write` | Plan + context tabs |
-| `whoami` / `house_status` | Seat identity + snapshot |
+| **TUI** | Seat opens in your default terminal via `omarchy-launch-tui` |
+| **ACP** | Seat is driven over Agent Client Protocol stdio (`acp_host.py`) |
 
-State file: `~/.local/state/omarchy/agent-room/house.json`
+ACP commands used:
+- Grok Build: `grok agent stdio`
+- Hermes: `hermes acp --accept-hooks`
+- Codex: `npx -y @agentclientprotocol/codex-acp`
+- Claude Code: `npx -y @agentclientprotocol/claude-agent-acp`
+- Gemini: `gemini --acp`
+- Copilot: `copilot --acp`
 
-## CLI
+Per-seat example:
 
 ```bash
-agent-room init
-agent-room create-room --name Superprompt --goal "Dissect SuperPrompt" --cwd ~/Work/superprompt
-agent-room start-room <room-id>
-agent-room send --room <id> --from operator --to '*' --body 'ship it'
-agent-room board-post --room <id> --author operator --title Help --body '...'
+agent-room create-room --name Mix --goal "Ship it" \
+  --seat coordinator=grok:tui --seat builder=codex:tui --seat judge=hermes:acp
+agent-room set-seat <room> builder --harness grok --transport acp --restart
 ```
