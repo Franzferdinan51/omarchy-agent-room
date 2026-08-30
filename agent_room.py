@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import connectors
+import harness as hx
+
 VERSION = "1.0.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
@@ -40,17 +43,7 @@ MAX_MAIL = 2000
 MAX_BOARD = 500
 MAX_WORK = 400
 
-AGENT_LAUNCH = {
-    "grok": ["grok", "--permission-mode", "bypassPermissions"],
-    "codex": ["codex", "--approve-for-me"],
-    "claude": ["claude", "--permission-mode", "auto"],
-    "opencode": ["opencode", "--auto"],
-    "gemini": ["gemini", "--yolo"],
-    "copilot": ["copilot", "--allow-all"],
-    "crush": ["crush", "--yolo"],
-    "omp": ["omp", "--auto-approve"],
-    "pi": ["pi"],
-}
+AGENT_LAUNCH = {h["id"]: list(h["argv"]) for h in hx.HARNESSES}
 
 
 def now_iso() -> str:
@@ -84,6 +77,7 @@ def empty_house() -> dict[str, Any]:
             "workspace": DEFAULT_WORKSPACE,
             "default_program": default_program(),
         },
+        "settings": hx.default_settings(),
         "rooms": [],
         "mail": [],
         "board": [],
@@ -164,6 +158,7 @@ class House:
                 base[key] = []
         if not isinstance(base.get("house"), dict):
             base["house"] = empty_house()["house"]
+        base["settings"] = hx.merge_settings(base.get("settings") if isinstance(base.get("settings"), dict) else None)
         return base
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -195,37 +190,15 @@ class House:
             lock.close()
 
     def snapshot(self) -> dict[str, Any]:
-        data = self.load()
-        rooms = data.get("rooms") or []
-        mail = data.get("mail") or []
-        work = data.get("work") or []
-        claims = data.get("claims") or []
-        board = data.get("board") or []
-        running_agents = 0
-        for room in rooms:
-            for role in room.get("roles") or []:
-                if role.get("status") == "running":
-                    running_agents += 1
-        data["stats"] = {
-            "teams": len(rooms),
-            "running": running_agents,
-            "messages": len(mail),
-            "open_board": sum(1 for p in board if p.get("status") == "open"),
-            "active_work": sum(1 for w in work if w.get("status") == "active"),
-            "blocked_work": sum(1 for w in work if w.get("status") == "blocked"),
-            "claims": len(claims),
-            "cmds": len(data.get("cmds") or []),
-            "plan": len(data.get("plan") or []),
-            "health": len(data.get("health") or []),
-            "context": len(data.get("context") or []),
-        }
-        data["meta"] = {
-            "program": (data.get("house") or {}).get("default_program") or default_program(),
-            "omarchy": omarchy_version(),
-            "version": VERSION,
-            "plugin_id": PLUGIN_ID,
-            "state_path": str(self.path),
-        }
+        data = decorate_house(self.load())
+        try:
+            data["hermes"] = connectors.hermes_status()
+        except Exception as exc:  # noqa: BLE001
+            data["hermes"] = {"installed": False, "error": str(exc), "gateway": "unknown", "acp": False}
+        try:
+            data["acp"] = connectors.acp_catalog()
+        except Exception:  # noqa: BLE001
+            data["acp"] = []
         return data
 
 
@@ -255,13 +228,45 @@ def decorate_house(data: dict[str, Any]) -> dict[str, Any]:
         "health": len(data["health"]),
         "context": len(data.get("context") or []),
     }
+    settings = hx.merge_settings(data.get("settings") if isinstance(data.get("settings"), dict) else None)
+    data["settings"] = settings
+    detected = hx.detect()
+    data["harnesses"] = [
+        {
+            "id": h["id"],
+            "label": h["label"],
+            "bin": h["bin"],
+            "family": h["family"],
+            "blurb": h["blurb"],
+            "installed": h["installed"],
+            "path": h["path"],
+        }
+        for h in detected
+    ]
+    installed = [h["id"] for h in detected if h["installed"]]
+    mix = {}
+    for room in rooms:
+        for role in room.get("roles") or []:
+            hid = hx.get(role.get("program") or settings.get("default_harness") or "grok")["id"]
+            mix[hid] = mix.get(hid, 0) + 1
+    data["stats"]["harnesses_installed"] = len(installed)
+    data["stats"]["harness_mix"] = mix
     data["meta"] = {
-        "program": (data.get("house") or {}).get("default_program") or default_program(),
+        "program": settings.get("default_harness") or (data.get("house") or {}).get("default_program") or default_program(),
         "omarchy": omarchy_version(),
         "version": VERSION,
         "plugin_id": PLUGIN_ID,
         "state_path": str(HOUSE_PATH),
+        "installed_harnesses": installed,
     }
+    try:
+        data["hermes"] = connectors.hermes_status()
+    except Exception as exc:  # noqa: BLE001
+        data["hermes"] = {"installed": False, "error": str(exc), "gateway": "unknown", "acp": False}
+    try:
+        data["acp"] = connectors.acp_catalog()
+    except Exception:  # noqa: BLE001
+        data["acp"] = []
     return data
 
 
@@ -353,6 +358,7 @@ def create_room(
     cwd: str | None = None,
     roles: list[str] | None = None,
     program: str | None = None,
+    seats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     name = (name or "").strip()
     if not name:
@@ -360,11 +366,33 @@ def create_room(
     goal = (goal or "").strip()
     if not goal:
         raise ValueError("room goal is required")
+    settings = hx.merge_settings(data.get("settings") if isinstance(data.get("settings"), dict) else None)
     role_ids = [r.strip().lower() for r in (roles or DEFAULT_ROLES) if r.strip()]
+    if seats and isinstance(seats, dict) and not role_ids:
+        role_ids = [str(k).strip().lower() for k in seats.keys()]
     if not role_ids:
         role_ids = list(DEFAULT_ROLES)
-    program = program or (data.get("house") or {}).get("default_program") or default_program()
+    program = program or settings.get("default_harness") or default_program()
     cwd = os.path.expanduser(cwd or str(Path.home() / "Work"))
+    built = []
+    for rid in role_ids:
+        seat = (seats or {}).get(rid) if isinstance(seats, dict) else None
+        if not isinstance(seat, dict):
+            seat = {}
+        hid = hx.resolve_seat_harness(settings, rid, seat.get("harness") or seat.get("program") or program)
+        transport = hx.resolve_transport(settings, rid, seat.get("transport"))
+        built.append(
+            {
+                "id": rid,
+                "name": rid.replace("-", " ").title(),
+                "program": hid,
+                "harness": hid,
+                "transport": transport,
+                "status": "idle",
+                "pid": 0,
+                "acp_log": "",
+            }
+        )
     room = {
         "id": nid("rm-"),
         "slug": slugify(name),
@@ -375,16 +403,7 @@ def create_room(
         "program": program,
         "created_at": now_iso(),
         "monitor_hidden": False,
-        "roles": [
-            {
-                "id": rid,
-                "name": rid.replace("-", " ").title(),
-                "program": program,
-                "status": "idle",
-                "pid": 0,
-            }
-            for rid in role_ids
-        ],
+        "roles": built,
     }
     data.setdefault("rooms", []).append(room)
     log_cmd(data, "house", f"create-room {name}", "ok")
@@ -636,6 +655,10 @@ You are the {role['id']}. Coordinate through MCP Mail and the help board — do 
 TEAMMATES
 {others or '(solo)'}
 
+HARNESS
+You are running as {role.get('harness') or role.get('program') or 'grok'} over {role.get('transport') or 'tui'}.
+If transport is ACP, you were started through the Agent Client Protocol; still use MCP Mail for teammates.
+
 HOW TO TALK
 This machine has an MCP server named `agent-room`. Use it. There is no web UI and no HTTP port.
 
@@ -672,68 +695,157 @@ def write_brief(room: dict[str, Any], role: dict[str, Any]) -> Path:
     return path
 
 
-def launch_command(program: str, prompt: str) -> list[str]:
-    base = list(AGENT_LAUNCH.get(program, [program]))
-    if program == "pi":
-        return base + [prompt]
-    if program == "crush":
-        return ["crush", "run", prompt]
-    if program == "gemini":
-        return ["gemini", "--yolo", "--prompt-interactive", prompt]
-    if program == "copilot":
-        return ["copilot", "--allow-all", "--interactive", prompt]
-    return base + ["--", prompt]
+def launch_command(program: str, prompt: str, unattended: bool = True) -> list[str]:
+    return hx.launch_argv(program, prompt, unattended=unattended)
+
+
+def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, Any]) -> None:
+    brief = write_brief(room, role)
+    prompt = (
+        f"Read the briefing file {brief} and follow it. "
+        f"You are {role['name']} in room {room['name']} using harness "
+        f"{role.get('harness') or role.get('program')} over {role.get('transport') or 'tui'}."
+    )
+    program = role.get("harness") or role.get("program") or room.get("program") or default_program()
+    transport = role.get("transport") or "tui"
+    env = os.environ.copy()
+    env["AGENT_ROOM_ID"] = room["id"]
+    env["AGENT_ROOM_NAME"] = role["name"]
+    env["AGENT_ROOM_ROLE"] = role["id"]
+    env["AGENT_ROOM_CWD"] = room.get("cwd") or str(Path.home() / "Work")
+    env["AGENT_ROOM_HARNESS"] = program
+    env["AGENT_ROOM_TRANSPORT"] = transport
+    plugin = Path(__file__).resolve().parent
+    cwd = room.get("cwd") or str(Path.home() / "Work")
+    Path(cwd).mkdir(parents=True, exist_ok=True)
+    unattended = bool(settings.get("launch_unattended", True))
+    try:
+        if transport == "acp" and settings.get("acp_enabled", True):
+            log_path = STATE_DIR / "acp" / f"{room['id']}-{role['id']}.jsonl"
+            proc = subprocess.Popen(
+                [sys.executable, str(plugin / "acp_host.py"), program, cwd, str(log_path), prompt],
+                env=env,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            role["acp_log"] = str(log_path)
+            role["transport"] = "acp"
+        else:
+            launch = plugin / "bin" / "launch-seat"
+            proc = subprocess.Popen(
+                [str(launch), room["id"], role["id"], program, cwd, prompt],
+                env=env,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            role["transport"] = "tui"
+        role["status"] = "running"
+        role["pid"] = proc.pid
+        role["program"] = program
+        role["harness"] = program
+        role["started_at"] = now_iso()
+        role["error"] = ""
+    except OSError as exc:
+        role["status"] = "error"
+        role["error"] = str(exc)
+    _ = unattended
 
 
 def start_room(house: House, room_id: str) -> dict[str, Any]:
-    data = house.load()
-    room = find_room(data, room_id)
-
     def _start(current: dict[str, Any]) -> dict[str, Any]:
-        r = find_room(current, room["id"])
+        r = find_room(current, room_id)
+        settings = hx.merge_settings(current.get("settings") if isinstance(current.get("settings"), dict) else None)
         r["status"] = "running"
         for role in r.get("roles") or []:
             if role.get("status") == "running" and role.get("pid"):
                 continue
-            brief = write_brief(r, role)
-            prompt = (
-                f"Read the briefing file {brief} and follow it. "
-                f"You are {role['name']} in room {r['name']}."
-            )
-            program = role.get("program") or r.get("program") or default_program()
-            env = os.environ.copy()
-            env["AGENT_ROOM_ID"] = r["id"]
-            env["AGENT_ROOM_NAME"] = role["name"]
-            env["AGENT_ROOM_ROLE"] = role["id"]
-            env["AGENT_ROOM_CWD"] = r.get("cwd") or str(Path.home() / "Work")
-            plugin = Path(__file__).resolve().parent
-            launch = plugin / "bin" / "launch-seat"
-            try:
-                proc = subprocess.Popen(
-                    [
-                        str(launch),
-                        r["id"],
-                        role["id"],
-                        program,
-                        r.get("cwd") or str(Path.home() / "Work"),
-                        prompt,
-                    ],
-                    env=env,
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                role["status"] = "running"
-                role["pid"] = proc.pid
-                role["started_at"] = now_iso()
-            except OSError as exc:
-                role["status"] = "error"
-                role["error"] = str(exc)
+            _spawn_seat(r, role, settings)
         log_cmd(current, "house", f"start-room {r['name']}", "ok")
         return r
 
-    started = house.mutate(_start)
-    return started
+    return house.mutate(_start)
+
+
+def start_seat(house: House, room_id: str, role_id: str) -> dict[str, Any]:
+    def _one(current: dict[str, Any]) -> dict[str, Any]:
+        r = find_room(current, room_id)
+        role = find_role(r, role_id)
+        if not role:
+            raise KeyError(f"seat not found: {role_id}")
+        settings = hx.merge_settings(current.get("settings") if isinstance(current.get("settings"), dict) else None)
+        _spawn_seat(r, role, settings)
+        if any(s.get("status") == "running" for s in r.get("roles") or []):
+            r["status"] = "running"
+        log_cmd(current, "house", f"start-seat {role_id}", "ok")
+        return role
+
+    return house.mutate(_one)
+
+
+def stop_seat(house: House, room_id: str, role_id: str) -> dict[str, Any]:
+    def _one(current: dict[str, Any]) -> dict[str, Any]:
+        r = find_room(current, room_id)
+        role = find_role(r, role_id)
+        if not role:
+            raise KeyError(f"seat not found: {role_id}")
+        pid = int(role.get("pid") or 0)
+        if pid > 1:
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass
+        role["status"] = "idle"
+        role["pid"] = 0
+        if not any(s.get("status") == "running" for s in r.get("roles") or []):
+            r["status"] = "idle"
+        log_cmd(current, "house", f"stop-seat {role_id}", "ok")
+        return role
+
+    return house.mutate(_one)
+
+
+def set_seat(
+    house: House,
+    room_id: str,
+    role_id: str,
+    harness: str | None = None,
+    transport: str | None = None,
+    restart: bool = False,
+) -> dict[str, Any]:
+    def _set(current: dict[str, Any]) -> dict[str, Any]:
+        r = find_room(current, room_id)
+        role = find_role(r, role_id)
+        if not role:
+            raise KeyError(f"seat not found: {role_id}")
+        if harness:
+            hid = hx.get(harness)["id"]
+            role["program"] = hid
+            role["harness"] = hid
+        if transport in ("tui", "acp"):
+            role["transport"] = transport
+        log_cmd(current, "house", f"set-seat {role_id}", "ok")
+        return role
+
+    role = house.mutate(_set)
+    if restart:
+        stop_seat(house, room_id, role_id)
+        return start_seat(house, room_id, role_id)
+    return role
+
+
+def apply_settings(house: House, patch: dict[str, Any]) -> dict[str, Any]:
+    def _apply(current: dict[str, Any]) -> dict[str, Any]:
+        current["settings"] = hx.merge_settings({**(current.get("settings") or {}), **patch})
+        if "default_harness" in patch:
+            current.setdefault("house", {})["default_program"] = current["settings"]["default_harness"]
+        if "workspace" in patch:
+            current.setdefault("house", {})["workspace"] = current["settings"]["workspace"]
+        log_cmd(current, "operator", "set-settings", "ok")
+        return current["settings"]
+
+    return house.mutate(_apply)
 
 
 def stop_room(house: House, room_id: str) -> dict[str, Any]:
@@ -986,6 +1098,54 @@ TOOLS = [
             "required": ["text"],
         },
     },
+    {
+        "name": "list_harnesses",
+        "description": "List TUI/ACP harnesses and whether they are installed.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "hermes_status",
+        "description": "Hermes Agent install, gateway, model, and ACP readiness.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "set_settings",
+        "description": "Patch Agent Room settings (default harness, per-role harness, transport, Hermes/ACP flags).",
+        "inputSchema": {"type": "object", "properties": {"patch": {"type": "object"}}, "required": ["patch"]},
+    },
+    {
+        "name": "set_seat",
+        "description": "Change a seat's harness and/or transport (tui|acp). Optional restart.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "room_id": {"type": "string"},
+                "role_id": {"type": "string"},
+                "harness": {"type": "string"},
+                "transport": {"type": "string"},
+                "restart": {"type": "boolean"},
+            },
+            "required": ["role_id"],
+        },
+    },
+    {
+        "name": "start_seat",
+        "description": "Launch one seat (TUI terminal or ACP host).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"room_id": {"type": "string"}, "role_id": {"type": "string"}},
+            "required": ["role_id"],
+        },
+    },
+    {
+        "name": "stop_seat",
+        "description": "Stop one seat.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"room_id": {"type": "string"}, "role_id": {"type": "string"}},
+            "required": ["role_id"],
+        },
+    },
 ]
 
 
@@ -1039,7 +1199,8 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
                 args.get("goal", ""),
                 args.get("cwd"),
                 args.get("roles"),
-                args.get("program"),
+                args.get("program") or args.get("harness"),
+                args.get("seats"),
             )
         )
     if name == "room_start":
@@ -1170,6 +1331,25 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
         room_id = _resolved_room(args, house)
         author = _agent_arg(args, "author")
         return house.mutate(lambda d: add_context(d, room_id, author, args.get("text") or ""))
+    if name == "list_harnesses":
+        return hx.detect()
+    if name == "hermes_status":
+        return connectors.hermes_status()
+    if name == "set_settings":
+        return apply_settings(house, args.get("patch") or args)
+    if name == "set_seat":
+        return set_seat(
+            house,
+            _resolved_room(args, house),
+            str(args.get("role_id") or args.get("role") or ""),
+            args.get("harness") or args.get("program"),
+            args.get("transport"),
+            bool(args.get("restart")),
+        )
+    if name == "start_seat":
+        return start_seat(house, _resolved_room(args, house), str(args.get("role_id") or args.get("role") or ""))
+    if name == "stop_seat":
+        return stop_seat(house, _resolved_room(args, house), str(args.get("role_id") or args.get("role") or ""))
     raise ValueError(f"unknown tool: {name}")
 
 
@@ -1304,6 +1484,13 @@ def cli(argv: list[str] | None = None) -> int:
     p_create.add_argument("--cwd", default="")
     p_create.add_argument("--roles", default=",".join(DEFAULT_ROLES))
     p_create.add_argument("--program", default="")
+    p_create.add_argument("--harness", default="")
+    p_create.add_argument(
+        "--seat",
+        action="append",
+        default=[],
+        help="role=harness[:tui|acp]  (repeatable, e.g. builder=codex:tui)",
+    )
 
     p_start = sub.add_parser("start-room")
     p_start.add_argument("room_id")
@@ -1341,6 +1528,37 @@ def cli(argv: list[str] | None = None) -> int:
     p_review = sub.add_parser("review")
     p_review.add_argument("--room", default="")
 
+    sub.add_parser("harnesses", help="List harnesses and ACP adapters")
+    sub.add_parser("hermes", help="Hermes Agent status")
+
+    p_set = sub.add_parser("set-settings")
+    p_set.add_argument("--json", dest="patch_json", default="")
+    p_set.add_argument("--default-harness", default="")
+    p_set.add_argument("--default-transport", choices=["", "tui", "acp"], default="")
+    p_set.add_argument("--workspace", default="")
+    p_set.add_argument("--mixed", choices=["", "true", "false"], default="")
+    p_set.add_argument("--role-harness", action="append", default=[], help="role=harness")
+    p_set.add_argument("--acp", choices=["", "true", "false"], default="")
+    p_set.add_argument("--hermes", choices=["", "true", "false"], default="")
+
+    p_seat = sub.add_parser("set-seat")
+    p_seat.add_argument("room_id")
+    p_seat.add_argument("role_id")
+    p_seat.add_argument("--harness", default="")
+    p_seat.add_argument("--transport", choices=["", "tui", "acp"], default="")
+    p_seat.add_argument("--restart", action="store_true")
+
+    p_ss = sub.add_parser("start-seat")
+    p_ss.add_argument("room_id")
+    p_ss.add_argument("role_id")
+    p_st = sub.add_parser("stop-seat")
+    p_st.add_argument("room_id")
+    p_st.add_argument("role_id")
+
+    p_exec = sub.add_parser("exec-seat", help="Exec a harness in this terminal (used by launch-seat)")
+    p_exec.add_argument("harness")
+    p_exec.add_argument("prompt")
+
     args = parser.parse_args(argv)
     house = House()
     house.ensure()
@@ -1352,8 +1570,23 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "create-room":
         roles = [r.strip() for r in args.roles.split(",") if r.strip()]
+        seats: dict[str, Any] = {}
+        for spec in args.seat or []:
+            if "=" not in spec:
+                continue
+            rid, rest = spec.split("=", 1)
+            harness_id, _, transport = rest.partition(":")
+            seats[rid.strip()] = {"harness": harness_id.strip(), "transport": transport.strip() or None}
         room = house.mutate(
-            lambda d: create_room(d, args.name, args.goal, args.cwd or None, roles, args.program or None)
+            lambda d: create_room(
+                d,
+                args.name,
+                args.goal,
+                args.cwd or None,
+                roles,
+                args.harness or args.program or None,
+                seats or None,
+            )
         )
         print_json(room)
         return 0
@@ -1384,6 +1617,58 @@ def cli(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+    if args.cmd == "harnesses":
+        print_json({"harnesses": hx.detect(), "acp": connectors.acp_catalog()})
+        return 0
+    if args.cmd == "hermes":
+        print_json(connectors.hermes_status())
+        return 0
+    if args.cmd == "set-settings":
+        patch: dict[str, Any] = {}
+        if args.patch_json:
+            patch.update(json.loads(args.patch_json))
+        if args.default_harness:
+            patch["default_harness"] = args.default_harness
+        if args.default_transport:
+            patch["default_transport"] = args.default_transport
+        if args.workspace:
+            patch["workspace"] = args.workspace
+        if args.mixed:
+            patch["mixed_harness"] = args.mixed == "true"
+        if args.acp:
+            patch["acp_enabled"] = args.acp == "true"
+        if args.hermes:
+            patch["hermes_enabled"] = args.hermes == "true"
+        if args.role_harness:
+            rh = {}
+            for spec in args.role_harness:
+                if "=" in spec:
+                    k, v = spec.split("=", 1)
+                    rh[k.strip()] = v.strip()
+            patch["role_harness"] = rh
+        print_json(apply_settings(house, patch))
+        return 0
+    if args.cmd == "set-seat":
+        print_json(
+            set_seat(
+                house,
+                args.room_id,
+                args.role_id,
+                args.harness or None,
+                args.transport or None,
+                args.restart,
+            )
+        )
+        return 0
+    if args.cmd == "start-seat":
+        print_json(start_seat(house, args.room_id, args.role_id))
+        return 0
+    if args.cmd == "stop-seat":
+        print_json(stop_seat(house, args.room_id, args.role_id))
+        return 0
+    if args.cmd == "exec-seat":
+        argv = hx.launch_argv(args.harness, args.prompt, unattended=True)
+        os.execvp(argv[0], argv)
     if args.cmd == "set-monitor":
         hidden = args.hidden == "true"
 

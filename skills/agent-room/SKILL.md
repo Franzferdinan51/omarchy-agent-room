@@ -13,6 +13,8 @@ Identity (from the environment, else `whoami`):
 - `AGENT_ROOM_NAME` — your mail name (Coordinator, Builder, Reviewer, …)
 - `AGENT_ROOM_ROLE` — seat id
 - `AGENT_ROOM_CWD` — working directory
+- `AGENT_ROOM_HARNESS` — grok, codex, hermes, claude, …
+- `AGENT_ROOM_TRANSPORT` — `tui` or `acp`
 
 ## Session start
 

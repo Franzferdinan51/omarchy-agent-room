@@ -23,9 +23,26 @@ Item {
   property bool formReviewer: true
   property bool formJudge: true
   property bool formCreative: true
+  property string formHCoordinator: "grok"
+  property string formHBuilder: "codex"
+  property string formHReviewer: "claude"
+  property string formHJudge: "hermes"
+  property string formHCreative: "grok"
+  property string formTCoordinator: "tui"
+  property string formTBuilder: "tui"
+  property string formTReviewer: "tui"
+  property string formTJudge: "acp"
+  property string formTCreative: "tui"
   property string lastError: ""
   property string composeText: ""
   property bool startAfterCreate: false
+  property string settingsDefaultHarness: "grok"
+  property string settingsDefaultTransport: "tui"
+  property bool settingsMixed: true
+  property bool settingsAcp: true
+  property bool settingsHermes: true
+  property string settingsWorkspace: "agent-house"
+  property bool settingsHydrated: false
 
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
@@ -70,6 +87,29 @@ Item {
     }
   }
   readonly property var meta: house.meta || ({})
+  readonly property var hermes: house.hermes || ({})
+  readonly property var harnessOptions: {
+    var hs = house.harnesses || []
+    var out = []
+    for (var i = 0; i < hs.length; i++) {
+      var mark = hs[i].installed ? "" : "  · missing"
+      var acp = hs[i].acp_ready ? "  · ACP" : ""
+      out.push({ value: hs[i].id, label: (hs[i].label || hs[i].id) + acp + mark })
+    }
+    if (out.length === 0) {
+      out = [
+        { value: "grok", label: "Grok Build" },
+        { value: "codex", label: "Codex" },
+        { value: "claude", label: "Claude Code" },
+        { value: "hermes", label: "Hermes" }
+      ]
+    }
+    return out
+  }
+  readonly property var transportOptions: [
+    { value: "tui", label: "TUI terminal" },
+    { value: "acp", label: "ACP stdio" }
+  ]
   readonly property var room: rooms.length > 0 ? rooms[Math.min(selectedRoom, rooms.length - 1)] : null
   readonly property var roomMail: {
     var out = []
@@ -131,6 +171,27 @@ Item {
     try {
       house = JSON.parse(raw || "{}")
       lastError = ""
+      var s = house.settings || {}
+      if (root.settingsHydrated) return
+      root.settingsHydrated = true
+      if (s.default_harness) settingsDefaultHarness = s.default_harness
+      if (s.default_transport) settingsDefaultTransport = s.default_transport
+      if (s.workspace) settingsWorkspace = s.workspace
+      if (s.mixed_harness !== undefined) settingsMixed = !!s.mixed_harness
+      if (s.acp_enabled !== undefined) settingsAcp = !!s.acp_enabled
+      if (s.hermes_enabled !== undefined) settingsHermes = !!s.hermes_enabled
+      var rh = s.role_harness || {}
+      if (rh.coordinator) formHCoordinator = rh.coordinator
+      if (rh.builder) formHBuilder = rh.builder
+      if (rh.reviewer) formHReviewer = rh.reviewer
+      if (rh.judge) formHJudge = rh.judge
+      if (rh["creative-director"]) formHCreative = rh["creative-director"]
+      var rt = s.role_transport || {}
+      if (rt.coordinator) formTCoordinator = rt.coordinator
+      if (rt.builder) formTBuilder = rt.builder
+      if (rt.reviewer) formTReviewer = rt.reviewer
+      if (rt.judge) formTJudge = rt.judge
+      if (rt["creative-director"]) formTCreative = rt["creative-director"]
     } catch (e) {
       lastError = "Could not read house state"
     }
@@ -155,8 +216,47 @@ Item {
       return
     }
     var args = ["create-room", "--name", formName.trim(), "--goal", formGoal.trim(), "--cwd", formCwd.trim() || (Quickshell.env("HOME") + "/Work"), "--roles", roles.join(",")]
-    if (formProgram.trim()) args = args.concat(["--program", formProgram.trim()])
+    if (formProgram.trim()) args = args.concat(["--harness", formProgram.trim()])
+    if (formCoordinator) args = args.concat(["--seat", "coordinator=" + formHCoordinator + ":" + formTCoordinator])
+    if (formBuilder) args = args.concat(["--seat", "builder=" + formHBuilder + ":" + formTBuilder])
+    if (formReviewer) args = args.concat(["--seat", "reviewer=" + formHReviewer + ":" + formTReviewer])
+    if (formJudge) args = args.concat(["--seat", "judge=" + formHJudge + ":" + formTJudge])
+    if (formCreative) args = args.concat(["--seat", "creative-director=" + formHCreative + ":" + formTCreative])
     tab = "house"
+    runCli(args)
+  }
+
+  function saveSettings() {
+    var patch = {
+      default_harness: settingsDefaultHarness,
+      default_transport: settingsDefaultTransport,
+      mixed_harness: settingsMixed,
+      acp_enabled: settingsAcp,
+      hermes_enabled: settingsHermes,
+      workspace: settingsWorkspace,
+      role_harness: {
+        coordinator: formHCoordinator,
+        builder: formHBuilder,
+        reviewer: formHReviewer,
+        judge: formHJudge,
+        "creative-director": formHCreative
+      },
+      role_transport: {
+        coordinator: formTCoordinator,
+        builder: formTBuilder,
+        reviewer: formTReviewer,
+        judge: formTJudge,
+        "creative-director": formTCreative
+      }
+    }
+    runCli(["set-settings", "--json", JSON.stringify(patch)])
+  }
+
+  function switchSeat(roleId, harness, transport) {
+    if (!room) return
+    var args = ["set-seat", room.id, roleId, "--restart"]
+    if (harness) args = args.concat(["--harness", harness])
+    if (transport) args = args.concat(["--transport", transport])
     runCli(args)
   }
 
@@ -317,7 +417,8 @@ Item {
                 { id: "plan", label: "Plan", count: root.stats.plan || 0 },
                 { id: "work", label: "Work", count: root.stats.active_work || 0 },
                 { id: "house", label: "House", count: root.stats.teams || 0 },
-                { id: "teams", label: "Teams", count: root.stats.teams || 0 }
+                { id: "teams", label: "Teams", count: root.stats.teams || 0 },
+                { id: "settings", label: "Settings" }
               ]
               delegate: Button {
                 required property var modelData
@@ -373,6 +474,31 @@ Item {
                     { label: "RUNNING", value: String(root.stats.running || 0), caption: "active seats" },
                     { label: "MAIL", value: String(root.stats.messages || 0), caption: "visible messages" }
                   ]
+                }
+                PanelSectionHeader { text: "HERMES"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  text: root.hermes.installed
+                    ? ("Connected  ·  " + (root.hermes.model || "model unset") + "  ·  gateway " + (root.hermes.gateway || "?") + "  ·  ACP " + (root.hermes.acp ? "ready" : "not ready"))
+                    : "Hermes Agent is not on PATH. Install it, then it can sit in a room over TUI or `hermes acp`."
+                }
+                PanelSectionHeader { text: "HARNESS MIX"; foreground: root.foreground }
+                Repeater {
+                  model: {
+                    var mix = root.stats.harness_mix || {}
+                    var rows = []
+                    for (var k in mix) rows.push({ id: k, n: mix[k] })
+                    return rows
+                  }
+                  delegate: Text {
+                    required property var modelData
+                    text: (modelData.id || "") + "  ·  " + (modelData.n || 0) + " seats"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                  }
                 }
               }
 
@@ -599,10 +725,45 @@ Item {
                   onTextChanged: root.formProgram = text
                 }
                 Toggle { width: parent.width; label: "Coordinator"; description: "Routes work and synthesizes the result"; checked: root.formCoordinator; onClicked: root.formCoordinator = !root.formCoordinator }
+                Row {
+                  visible: root.formCoordinator
+                  spacing: Style.space(8)
+                  width: parent.width
+                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHCoordinator; options: root.harnessOptions; onChanged: function(v) { root.formHCoordinator = v } }
+                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTCoordinator; options: root.transportOptions; onChanged: function(v) { root.formTCoordinator = v } }
+                }
                 Toggle { width: parent.width; label: "Builder"; description: "Implements the assignment"; checked: root.formBuilder; onClicked: root.formBuilder = !root.formBuilder }
+                Row {
+                  visible: root.formBuilder
+                  spacing: Style.space(8)
+                  width: parent.width
+                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHBuilder; options: root.harnessOptions; onChanged: function(v) { root.formHBuilder = v } }
+                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTBuilder; options: root.transportOptions; onChanged: function(v) { root.formTBuilder = v } }
+                }
                 Toggle { width: parent.width; label: "Reviewer"; description: "Reads the work and files findings"; checked: root.formReviewer; onClicked: root.formReviewer = !root.formReviewer }
+                Row {
+                  visible: root.formReviewer
+                  spacing: Style.space(8)
+                  width: parent.width
+                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHReviewer; options: root.harnessOptions; onChanged: function(v) { root.formHReviewer = v } }
+                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTReviewer; options: root.transportOptions; onChanged: function(v) { root.formTReviewer = v } }
+                }
                 Toggle { width: parent.width; label: "Judge"; description: "Acceptance criteria and keep/remove"; checked: root.formJudge; onClicked: root.formJudge = !root.formJudge }
+                Row {
+                  visible: root.formJudge
+                  spacing: Style.space(8)
+                  width: parent.width
+                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHJudge; options: root.harnessOptions; onChanged: function(v) { root.formHJudge = v } }
+                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTJudge; options: root.transportOptions; onChanged: function(v) { root.formTJudge = v } }
+                }
                 Toggle { width: parent.width; label: "Creative-director"; description: "Novelty and framing"; checked: root.formCreative; onClicked: root.formCreative = !root.formCreative }
+                Row {
+                  visible: root.formCreative
+                  spacing: Style.space(8)
+                  width: parent.width
+                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHCreative; options: root.harnessOptions; onChanged: function(v) { root.formHCreative = v } }
+                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTCreative; options: root.transportOptions; onChanged: function(v) { root.formTCreative = v } }
+                }
                 Row {
                   spacing: Style.space(8)
                   Button { text: "Create room"; bordered: true; onClicked: root.createRoom() }
@@ -696,6 +857,78 @@ Item {
                     bordered: true
                     visible: root.room && root.room.status === "running"
                     onClicked: root.stopSelected()
+                  }
+                }
+
+                Text {
+                  visible: !!root.room
+                  text: "SEATS  ·  switch harness or TUI/ACP per agent"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+                Repeater {
+                  model: root.room ? (root.room.roles || []) : []
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    implicitHeight: 92
+                    color: root.card
+                    border.width: 1
+                    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    Row {
+                      anchors.fill: parent
+                      anchors.margins: Style.space(12)
+                      spacing: Style.space(10)
+                      Column {
+                        width: 180
+                        spacing: 2
+                        Text {
+                          text: modelData.name || modelData.id
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.bold: true
+                        }
+                        Text {
+                          text: (modelData.harness || modelData.program || "") + "  ·  " + (modelData.transport || "tui") + "  ·  " + (modelData.status || "idle")
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+                      Button {
+                        text: modelData.status === "running" ? "Stop" : "Start"
+                        bordered: true
+                        onClicked: {
+                          if (!root.room) return
+                          root.runCli([modelData.status === "running" ? "stop-seat" : "start-seat", root.room.id, modelData.id])
+                        }
+                      }
+                      Button {
+                        text: "Grok"
+                        bordered: true
+                        selected: (modelData.harness || modelData.program) === "grok"
+                        onClicked: root.switchSeat(modelData.id, "grok", modelData.transport || "tui")
+                      }
+                      Button {
+                        text: "Codex"
+                        bordered: true
+                        selected: (modelData.harness || modelData.program) === "codex"
+                        onClicked: root.switchSeat(modelData.id, "codex", modelData.transport || "tui")
+                      }
+                      Button {
+                        text: "Hermes"
+                        bordered: true
+                        selected: (modelData.harness || modelData.program) === "hermes"
+                        onClicked: root.switchSeat(modelData.id, "hermes", modelData.transport || "tui")
+                      }
+                      Button {
+                        text: (modelData.transport === "acp") ? "Use TUI" : "Use ACP"
+                        bordered: true
+                        onClicked: root.switchSeat(modelData.id, modelData.harness || modelData.program, modelData.transport === "acp" ? "tui" : "acp")
+                      }
+                    }
                   }
                 }
 
@@ -813,6 +1046,68 @@ Item {
                   color: root.dim
                   font.family: root.fontFamily
                   text: "No rooms yet. Open the House tab and create one."
+                }
+              }
+
+              // ---------- SETTINGS ----------
+              Column {
+                visible: root.tab === "settings"
+                width: parent.width
+                spacing: Style.space(12)
+                PanelSectionHeader { text: "HARNESSES"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  text: "A room can mix Grok Build, Codex, Claude Code, Hermes, and the rest. TUI opens a terminal. ACP talks Agent Client Protocol over stdio — including `grok agent stdio` and `hermes acp`."
+                }
+                Dropdown { width: parent.width; label: "Default harness"; value: root.settingsDefaultHarness; options: root.harnessOptions; onChanged: function(v) { root.settingsDefaultHarness = v } }
+                Dropdown { width: parent.width; label: "Default transport"; value: root.settingsDefaultTransport; options: root.transportOptions; onChanged: function(v) { root.settingsDefaultTransport = v } }
+                Toggle { width: parent.width; label: "Mixed harness rooms"; description: "Allow each seat its own CLI"; checked: root.settingsMixed; onClicked: root.settingsMixed = !root.settingsMixed }
+                Toggle { width: parent.width; label: "ACP enabled"; description: "Spawn seats with Agent Client Protocol adapters"; checked: root.settingsAcp; onClicked: root.settingsAcp = !root.settingsAcp }
+                Toggle { width: parent.width; label: "Hermes enabled"; description: "Treat Hermes Agent as a first-class seat and show gateway status"; checked: root.settingsHermes; onClicked: root.settingsHermes = !root.settingsHermes }
+                Text { text: "WORKSPACE"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  width: parent.width
+                  text: root.settingsWorkspace
+                  onTextChanged: root.settingsWorkspace = text
+                }
+                Button { text: "Save settings"; bordered: true; onClicked: root.saveSettings() }
+
+                PanelSectionHeader { text: "HERMES CONNECTION"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  text: root.hermes.installed
+                    ? ((root.hermes.version || "Hermes") + "\nmodel  " + (root.hermes.model || "—") + "\ngateway  " + (root.hermes.gateway || "—") + "\nACP  " + (root.hermes.acp ? "ready (`hermes acp`)" : "adapter missing") + "\n" + (root.hermes.path || ""))
+                    : "Hermes is not installed. After `hermes` is on PATH, seats can launch `hermes --yolo` (TUI) or `hermes acp` (ACP)."
+                }
+
+                PanelSectionHeader { text: "ACP ADAPTERS"; foreground: root.foreground }
+                Repeater {
+                  model: root.house.acp || []
+                  delegate: Text {
+                    required property var modelData
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    text: (modelData.label || modelData.id) + "  ·  " + (modelData.installed ? "installed" : "missing") + "  ·  " + (modelData.acp_ready ? "ACP ready" : "no ACP") + (modelData.acp_command ? ("  ·  " + modelData.acp_command) : "")
+                  }
+                }
+                PanelSectionHeader { text: "INSTALLED CLIS"; foreground: root.foreground }
+                Repeater {
+                  model: root.house.harnesses || []
+                  delegate: Text {
+                    required property var modelData
+                    color: modelData.installed ? root.foreground : root.dim
+                    font.family: root.fontFamily
+                    text: (modelData.installed ? "●  " : "○  ") + (modelData.label || modelData.id) + "  ·  " + (modelData.family || "")
+                  }
                 }
               }
             }

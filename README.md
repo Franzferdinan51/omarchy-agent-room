@@ -8,6 +8,10 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 
 - **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
+- **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
+- **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
+- **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
+- **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide

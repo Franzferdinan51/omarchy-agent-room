@@ -78,6 +78,34 @@ class HouseTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.house.mutate(lambda d: ar.find_room(d, "nope"))
 
+    def test_mixed_harness_and_acp_seats(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(
+                d,
+                "Mix",
+                "Use several CLIs",
+                str(self.dir),
+                ["coordinator", "builder", "judge"],
+                "grok",
+                {
+                    "coordinator": {"harness": "grok", "transport": "tui"},
+                    "builder": {"harness": "codex", "transport": "tui"},
+                    "judge": {"harness": "hermes", "transport": "acp"},
+                },
+            )
+        )
+        by_id = {r["id"]: r for r in room["roles"]}
+        self.assertEqual(by_id["coordinator"]["harness"], "grok")
+        self.assertEqual(by_id["builder"]["harness"], "codex")
+        self.assertEqual(by_id["judge"]["harness"], "hermes")
+        self.assertEqual(by_id["judge"]["transport"], "acp")
+        settings = ar.apply_settings(self.house, {"default_harness": "codex", "acp_enabled": True})
+        self.assertEqual(settings["default_harness"], "codex")
+        import harness as hx
+        grok = hx.get("grok-build")
+        self.assertEqual(grok["id"], "grok")
+        self.assertTrue(grok["acp"])
+
 
 if __name__ == "__main__":
     unittest.main()
