@@ -74,7 +74,7 @@ def hermes_status() -> dict[str, Any]:
 def acp_catalog() -> list[dict[str, Any]]:
     rows = []
     for spec in hx.detect():
-        acp = spec.get("acp")
+        acp = spec.get("command")
         rows.append(
             {
                 "id": spec["id"],

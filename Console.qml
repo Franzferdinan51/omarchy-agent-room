@@ -13,7 +13,7 @@ FloatingWindow {
   color: "#0d1018"
 
   property int currentTab: 0
-  property string harness: "Codex"
+  property string harness: "MultiAgentCli (LM Studio)"
   property string workspace: "agent-house"
   property bool compactMode: false
   property var tabs: ["Overview", "Teams", "House", "Work", "Settings"]
@@ -136,7 +136,7 @@ FloatingWindow {
             ColumnLayout { id: settingsColumn; width: parent.width; spacing: 12
               Text { text: "General"; color: "#a8e6ff"; font.pixelSize: 12; font.bold: true; font.letterSpacing: 1 }
               Rectangle { Layout.fillWidth: true; height: 72; radius: 12; color: "#141a27"
-                RowLayout { anchors.fill: parent; anchors.margins: 16; ColumnLayout { Layout.fillWidth: true; spacing: 3; Text { text: "Default harness"; color: "#eef2ff"; font.pixelSize: 14 }; Text { text: "Used when a new room seat is created"; color: "#7e8aa3"; font.pixelSize: 12 } }; ComboBox { model: ["Codex", "Claude Code", "Hermes Agent", "Grok Build", "Gemini", "Copilot"]; currentIndex: Math.max(0, model.indexOf(root.harness)); onActivated: { root.harness = currentText; root.saveSettings() } } }
+                RowLayout { anchors.fill: parent; anchors.margins: 16; ColumnLayout { Layout.fillWidth: true; spacing: 3; Text { text: "Default harness"; color: "#eef2ff"; font.pixelSize: 14 }; Text { text: "Used when a new room seat is created"; color: "#7e8aa3"; font.pixelSize: 12 } }; ComboBox { model: ["MultiAgentCli (LM Studio)", "Codex", "Claude Code", "Hermes Agent", "Grok Build", "Gemini", "Copilot"]; currentIndex: Math.max(0, model.indexOf(root.harness)); onActivated: { root.harness = currentText; root.saveSettings() } } }
               }
               Rectangle { Layout.fillWidth: true; height: 72; radius: 12; color: "#141a27"
                 RowLayout { anchors.fill: parent; anchors.margins: 16; ColumnLayout { Layout.fillWidth: true; spacing: 3; Text { text: "Workspace"; color: "#eef2ff"; font.pixelSize: 14 }; Text { text: "Hyprland workspace used by agent seats"; color: "#7e8aa3"; font.pixelSize: 12 } }; TextField { text: root.workspace; placeholderText: "agent-house"; onTextChanged: { root.workspace = text; root.saveSettings() }; Layout.preferredWidth: 150 } }

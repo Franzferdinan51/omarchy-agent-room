@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from harness import local_cli_command
+
 STATE = Path(os.environ.get("AGENT_ROOM_STATE", Path.home() / ".local/state/omarchy/agent-room/house.json"))
 _LOCK = threading.RLock()
 
@@ -76,7 +78,7 @@ def find_room(data: dict[str, Any], room_id: str) -> dict[str, Any]:
     raise KeyError(room_id)
 
 
-def create_room(data: dict[str, Any], name: str, goal: str, cwd: str, roles: list[str], harness: str = "codex") -> dict[str, Any]:
+def create_room(data: dict[str, Any], name: str, goal: str, cwd: str, roles: list[str], harness: str = "multi-agent-cli") -> dict[str, Any]:
     room = {"id": _id("room"), "name": name, "goal": goal, "cwd": cwd, "created": now(), "status": "ready",
             "roles": [{"id": role, "name": role.title(), "status": "idle", "harness": harness, "transport": "tui"} for role in roles]}
     data.setdefault("rooms", []).append(room)
@@ -128,17 +130,58 @@ def claim_paths(data: dict[str, Any], room_id: str, owner: str, paths: list[str]
     return result
 
 
+def local_harness_command(model: str = "local-model", profile: str = "developer") -> tuple[list[str], dict[str, str]]:
+    """Build a command that delegates one seat goal to standalone MultiAgentCli."""
+    command, extra_env = local_cli_command()
+    command += ["run", "--profile", profile, "--agents", "lmstudio", "--model", model, "--no-progress", "--json"]
+    return command, extra_env
+
+
+def run_local_agent(goal: str, model: str = "local-model", profile: str = "developer", timeout: int = 180) -> dict[str, Any]:
+    """Run a goal through the standalone LM Studio-first harness."""
+    command, extra_env = local_harness_command(model=model, profile=profile)
+    command += ["--goal", goal]
+    env = os.environ.copy()
+    env.update(extra_env)
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env, check=False)
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        detail = completed.stderr.strip() or completed.stdout.strip() or str(exc)
+        raise RuntimeError(f"MultiAgentCli returned invalid JSON: {detail}") from exc
+    if completed.returncode != 0:
+        raise RuntimeError(payload.get("content") or payload.get("error") or "MultiAgentCli agent failed")
+    return payload
+
+
 def call_tool(name: str, args: dict[str, Any], house: House | None = None) -> Any:
     house = house or House()
     room_id = os.environ.get("AGENT_ROOM_ID", args.get("room_id", ""))
     actor = os.environ.get("AGENT_ROOM_NAME", args.get("author", "Agent"))
-    if name == "room_create": return house.mutate(lambda d: create_room(d, args["name"], args["goal"], args["cwd"], args["roles"], args.get("harness", "codex")))
+    if name == "room_create": return house.mutate(lambda d: create_room(d, args["name"], args["goal"], args["cwd"], args["roles"], args.get("harness", "multi-agent-cli")))
     if name == "send_mail": return house.mutate(lambda d: send_mail(d, room_id, actor, args.get("to", ["*"]), args.get("subject", ""), args["body"]))
     if name == "fetch_inbox": return inbox_for(house.snapshot(), actor, room_id)
     if name == "ask_help": return house.mutate(lambda d: board_post(d, room_id, actor, args["title"], args["body"]))
     if name == "board_list": return house.snapshot().get("board", [])
     if name == "list_work": return house.snapshot().get("work", [])
+    if name == "run_local_agent": return run_local_agent(
+        goal=args["goal"], model=args.get("model", "local-model"),
+        profile=args.get("profile", "developer"), timeout=int(args.get("timeout", 180)),
+    )
     raise KeyError(name)
+
+
+def mcp_tools() -> list[dict[str, Any]]:
+    """Describe the local Agent Room tools using the MCP tool schema."""
+    return [
+        {"name": "room_create", "description": "Create a local agent room", "inputSchema": {"type": "object"}},
+        {"name": "send_mail", "description": "Send a room message", "inputSchema": {"type": "object"}},
+        {"name": "fetch_inbox", "description": "Read room messages", "inputSchema": {"type": "object"}},
+        {"name": "ask_help", "description": "Post a help request", "inputSchema": {"type": "object"}},
+        {"name": "board_list", "description": "List help requests", "inputSchema": {"type": "object"}},
+        {"name": "list_work", "description": "List work items", "inputSchema": {"type": "object"}},
+        {"name": "run_local_agent", "description": "Run one goal through MultiAgentCli and LM Studio", "inputSchema": {"type": "object"}},
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,19 +194,41 @@ def main(argv: list[str] | None = None) -> int:
     seat = sub.add_parser("exec-seat")
     seat.add_argument("program")
     seat.add_argument("prompt")
+    local = sub.add_parser("run-local", help="Run one goal through standalone MultiAgentCli/LM Studio")
+    local.add_argument("goal")
+    local.add_argument("--model", default="local-model")
+    local.add_argument("--profile", default="developer")
+    local.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args(argv)
     house = House()
     if args.command == "init": house.ensure(); return 0
     if args.command == "snapshot": print(json.dumps(house.snapshot(), indent=2)); return 0
     if args.command == "exec-seat":
         return subprocess.call([args.program] if not args.prompt else [args.program, args.prompt])
+    if args.command == "run-local":
+        try:
+            print(json.dumps(run_local_agent(args.goal, args.model, args.profile, args.timeout)))
+            return 0
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            print(json.dumps({"success": False, "error": str(exc)}))
+            return 1
     if args.command == "mcp":
         for line in sys.stdin:
             try:
                 request = json.loads(line)
-                params = request.get("params", {}).get("arguments", request.get("params", {}))
-                result = call_tool(request.get("method", ""), params, house)
-                response = {"jsonrpc": "2.0", "id": request.get("id"), "result": {"content": [{"type": "text", "text": json.dumps(result)}]}}
+                method = request.get("method", "")
+                params = request.get("params", {}) or {}
+                if method == "initialize":
+                    result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "omarchy-agent-room", "version": "1.0.0"}}
+                elif method in {"notifications/initialized", "initialized"}:
+                    continue
+                elif method == "tools/list":
+                    result = {"tools": mcp_tools()}
+                elif method == "tools/call":
+                    result = call_tool(params["name"], params.get("arguments", {}), house)
+                else:
+                    result = call_tool(method, params.get("arguments", params), house)
+                response = {"jsonrpc": "2.0", "id": request.get("id"), "result": result if method in {"initialize", "tools/list"} else {"content": [{"type": "text", "text": json.dumps(result)}]}}
             except Exception as exc:
                 response = {"jsonrpc": "2.0", "id": request.get("id") if 'request' in locals() else None, "error": {"code": -32000, "message": str(exc)}}
             print(json.dumps(response), flush=True)

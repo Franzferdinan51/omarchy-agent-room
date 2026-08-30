@@ -78,6 +78,53 @@ class HouseTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.house.mutate(lambda d: ar.find_room(d, "nope"))
 
+    def test_local_harness_command_targets_standalone_mach(self):
+        command, env = ar.local_harness_command(model="qwen-local", profile="developer")
+
+        self.assertIn("multi_agent_cli.cli", command)
+        self.assertIn("--agents", command)
+        self.assertIn("lmstudio", command)
+        self.assertIn("--model", command)
+        self.assertIn("qwen-local", command)
+        self.assertIn("PYTHONPATH", env)
+
+    def test_mcp_local_agent_bridge(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Local", "Run", str(self.dir), ["coordinator"])
+        )
+        original = ar.run_local_agent
+        try:
+            ar.run_local_agent = lambda **kwargs: {"content": "local-ok", "model": kwargs["model"]}
+            result = ar.call_tool(
+                "run_local_agent",
+                {"room_id": room["id"], "goal": "hello", "model": "qwen-local"},
+                self.house,
+            )
+        finally:
+            ar.run_local_agent = original
+        self.assertEqual(result["content"], "local-ok")
+        self.assertEqual(result["model"], "qwen-local")
+
+    def test_mcp_stdio_protocol_exposes_local_harness(self):
+        requests = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        ]
+        completed = __import__("subprocess").run(
+            [str(ROOT / "bin" / "agent-room"), "mcp"],
+            input="\n".join(json.dumps(item) for item in requests) + "\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(responses[0]["result"]["protocolVersion"], "2024-11-05")
+        tool_names = {tool["name"] for tool in responses[-1]["result"]["tools"]}
+        self.assertIn("run_local_agent", tool_names)
+
 
 if __name__ == "__main__":
     unittest.main()
