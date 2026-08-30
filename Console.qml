@@ -911,7 +911,22 @@ Item {
                     width: parent.width
                     spacing: Style.space(6)
                     Capsule { width: parent.width; title: modelData.title || ""; body: modelData.brief || ""; nextLine: modelData.next || ""; footer: (modelData.cwd || "") + "    " + (modelData.files || 0) + " FILES  ·  " + (modelData.claims || 0) + " CLAIMS"; statusText: ((modelData.status || "") + "  ·  " + (modelData.owner || "")).toUpperCase(); statusColor: modelData.status === "active" ? root.accent : root.dim }
-                    Flow { width: parent.width; spacing: Style.space(8); Button { text: "Claim"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["claim-work", modelData.id, "--agent", "operator"]) }; Button { text: "Complete"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["complete-work", modelData.id, "--agent", "operator"]) } }
+                    Flow {
+                      width: parent.width
+                      spacing: Style.space(8)
+                      Button {
+                        text: "Claim"
+                        bordered: true
+                        enabled: modelData.status !== "completed"
+                        onClicked: root.runCli(["claim-work", modelData.id, "--agent", "operator"])
+                      }
+                      Button {
+                        text: "Complete"
+                        bordered: true
+                        enabled: modelData.status !== "completed"
+                        onClicked: root.runCli(["complete-work", modelData.id, "--agent", "operator"])
+                      }
+                    }
                   }
                 }
                 Text {
