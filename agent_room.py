@@ -1444,7 +1444,7 @@ TOOLS = [
     },
     {
         "name": "set_seat",
-        "description": "Change a seat's harness and/or transport (tui|acp). Optional restart.",
+        "description": "Change a seat's harness, model, and/or transport (tui|acp). Optional restart.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1452,6 +1452,7 @@ TOOLS = [
                 "role_id": {"type": "string"},
                 "harness": {"type": "string"},
                 "transport": {"type": "string"},
+                "model": {"type": "string", "description": "Optional model ID, including local LM Studio models."},
                 "restart": {"type": "boolean"},
             },
             "required": ["role_id"],
@@ -1683,6 +1684,7 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
             str(args.get("role_id") or args.get("role") or ""),
             args.get("harness") or args.get("program"),
             args.get("transport"),
+            args.get("model"),
             bool(args.get("restart")),
         )
     if name == "start_seat":
@@ -1692,18 +1694,30 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
     raise ValueError(f"unknown tool: {name}")
 
 
+MCP_FRAMING = "content-length"
+
+
 def mcp_write(msg: dict[str, Any]) -> None:
     body = json.dumps(msg, ensure_ascii=False).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body)
+    if MCP_FRAMING == "newline":
+        sys.stdout.buffer.write(body + b"\n")
+    else:
+        sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body)
     sys.stdout.buffer.flush()
 
 
 def mcp_read() -> dict[str, Any] | None:
+    global MCP_FRAMING
     headers: dict[str, str] = {}
+    first_line = True
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
+        if first_line and line.lstrip().startswith(b"{"):
+            MCP_FRAMING = "newline"
+            return json.loads(line.decode("utf-8"))
+        first_line = False
         if line in (b"\n", b"\r\n"):
             break
         try:

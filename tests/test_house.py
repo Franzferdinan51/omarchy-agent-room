@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import sys
 import tempfile
@@ -240,6 +241,24 @@ class HouseTests(unittest.TestCase):
         help_post = ar.call_tool("ask_help", {"title": "stuck", "body": "need a second pair"}, self.house)
         posts = ar.call_tool("board_list", {}, self.house)
         self.assertEqual(posts[0]["id"], help_post["id"])
+        updated = ar.call_tool("set_seat", {"room_id": room["id"], "role_id": "coordinator", "model": "ornith-1.5-35b-a3b"}, self.house)
+        self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
+
+    def test_mcp_accepts_newline_delimited_json(self):
+        class Stream:
+            def __init__(self, value=b""):
+                self.buffer = io.BytesIO(value)
+
+        old_framing = ar.MCP_FRAMING
+        try:
+            ar.MCP_FRAMING = "content-length"
+            with mock.patch.object(sys, "stdin", Stream(b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n')), mock.patch.object(sys, "stdout", Stream()) as stdout:
+                request = ar.mcp_read()
+                ar.mcp_write({"jsonrpc": "2.0", "id": 1, "result": {}})
+                self.assertEqual(request["method"], "ping")
+                self.assertEqual(json.loads(stdout.buffer.getvalue()), {"jsonrpc": "2.0", "id": 1, "result": {}})
+        finally:
+            ar.MCP_FRAMING = old_framing
 
     def test_unknown_room(self):
         with self.assertRaises(KeyError):
