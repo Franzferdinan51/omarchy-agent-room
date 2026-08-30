@@ -2,16 +2,22 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import sys
 import tempfile
 import unittest
+import subprocess
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import agent_room as ar  # noqa: E402
+import connectors  # noqa: E402
+import acp_host  # noqa: E402
+import harness  # noqa: E402
 
 
 class HouseTests(unittest.TestCase):
@@ -40,6 +46,202 @@ class HouseTests(unittest.TestCase):
         self.assertIn("claimed", inbox[0]["body"].lower())
         self.assertEqual(msg["from"], "Reviewer")
 
+    def test_telegram_token_is_not_in_house_snapshot(self):
+        with mock.patch.object(connectors, "_secret_tool", return_value=None):
+            result = connectors.telegram_set_token("fixture-token-value", self.house.path)
+            self.assertEqual(result["storage"], "protected-file")
+            self.assertTrue((self.dir / "telegram.token").stat().st_mode & 0o077 == 0)
+            snapshot = self.house.snapshot()
+            self.assertNotIn("fixture-token-value", json.dumps(snapshot))
+            self.assertTrue(snapshot["telegram_status"]["configured"])
+
+    def test_telegram_approved_chat_routes_to_selected_team(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Telegram Team", "Handle remote requests", str(self.dir), ["coordinator"], "grok")
+        )
+        self.house.mutate(lambda d: d["settings"].update(telegram_team=room["id"]))
+        self.house.mutate(lambda d: d["telegram"].update(approved=[{"chat_id": "42", "username": "tester"}]))
+        with mock.patch.object(connectors, "telegram_send"):
+            msg = ar.telegram_route_update(self.house, {"update_id": 7, "message": {"chat": {"id": 42}, "from": {"username": "tester"}, "text": "Please check status"}})
+        self.assertEqual(msg["room_id"], room["id"])
+        self.assertEqual(msg["from"], "telegram:tester")
+        self.assertEqual(msg["thread_id"], "telegram:42")
+
+    def test_telegram_unknown_chat_is_queued_and_not_delivered(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Pairing Team", "Handle paired requests", str(self.dir), ["coordinator"], "grok")
+        )
+        self.house.mutate(lambda d: d["settings"].update(telegram_team=room["id"]))
+        with mock.patch.object(connectors, "telegram_send") as send:
+            self.assertIsNone(ar.telegram_route_update(self.house, {"update_id": 8, "message": {"chat": {"id": 99}, "from": {"first_name": "New"}, "text": "Hello"}}))
+        self.assertEqual(len(self.house.load()["mail"]), 0)
+        self.assertEqual(self.house.load()["telegram"]["pending"][0]["chat_id"], "99")
+        send.assert_called_once()
+
+    def test_acp_host_completes_initialize_session_and_prompt(self):
+        fake = self.dir / "fake_acp.py"
+        fake.write_text(
+            "import json, sys\n"
+            "for line in sys.stdin:\n"
+            "    msg = json.loads(line)\n"
+            "    if msg.get('id') == 1:\n"
+            "        assert 'clientCapabilities' in msg['params']\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1,'authMethods':[{'id':'cached_token'}]}}), flush=True)\n"
+            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{}}), flush=True)\n"
+            "    elif msg.get('id') == 3:\n"
+            "        assert msg['params']['mcpServers'][0]['name'] == 'agent-room'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'sessionId':'fake-session'}}), flush=True)\n"
+            "    elif msg.get('id') == 4:\n"
+            "        assert msg['params']['_meta']['mode'] == 'agent'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':4,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
+            encoding="utf-8",
+        )
+        log = self.dir / "acp.jsonl"
+        with mock.patch.object(acp_host.hx, "acp_argv", return_value=[sys.executable, str(fake)]):
+            result = acp_host.run_seat("fake", str(self.dir), "hello", log, os.environ.copy())
+        self.assertEqual(result, 0)
+        events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(any(event.get("payload", {}).get("id") == 4 for event in events))
+
+    def test_acp_host_answers_permission_requests(self):
+        fake = self.dir / "permission_acp.py"
+        fake.write_text(
+            "import json, sys\n"
+            "for line in sys.stdin:\n"
+            "    msg = json.loads(line)\n"
+            "    if msg.get('id') == 1: print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1}}), flush=True)\n"
+            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{'sessionId':'permission-session'}}), flush=True)\n"
+            "    elif msg.get('id') == 3:\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':'permission-request','method':'session/request_permission','params':{'options':[{'optionId':'allow-once','kind':'allow_once'}]}}), flush=True)\n"
+            "        response = json.loads(sys.stdin.readline())\n"
+            "        assert response['result']['outcome']['optionId'] == 'allow-once'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
+            encoding="utf-8",
+        )
+        log = self.dir / "permission-acp.jsonl"
+        with mock.patch.object(acp_host.hx, "acp_argv", return_value=[sys.executable, str(fake)]):
+            result = acp_host.run_seat("fake", str(self.dir), "hello", log, os.environ.copy())
+        self.assertEqual(result, 0)
+        self.assertIn("allow-once", log.read_text(encoding="utf-8"))
+
+    def test_room_names_must_be_unique_and_slug_safe(self):
+        first = self.house.mutate(
+            lambda d: ar.create_room(d, "Build Team", "Ship it", str(self.dir), ["builder"], "codex")
+        )
+        self.assertEqual(first["slug"], "build-team")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.house.mutate(
+                lambda d: ar.create_room(d, " build-team ", "Another goal", str(self.dir), ["builder"], "codex")
+            )
+        second = self.house.mutate(
+            lambda d: ar.create_room(d, "Review Team", "Review it", str(self.dir), ["reviewer"], "codex")
+        )
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.house.mutate(lambda d: ar.update_room(d, first["id"], name=second["name"].replace(" ", "-")))
+
+    def test_room_update_rejects_empty_fields(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Draft", "Old goal", str(self.dir), ["builder"], "codex")
+        )
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            self.house.mutate(lambda d: ar.update_room(d, room["id"], goal="   "))
+        self.assertEqual(self.house.snapshot()["rooms"][0]["goal"], "Old goal")
+
+    def test_room_workspace_is_persisted_and_editable(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Workspace Team", "Use workspace four", str(self.dir), ["builder"], "codex", workspace="4")
+        )
+        self.assertEqual(room["workspace"], "4")
+        updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], workspace="name:dev"))
+        self.assertEqual(updated["workspace"], "name:dev")
+
+    def test_room_defaults_to_current_workspace(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Current Page", "Stay where I am", str(self.dir), ["builder"], "codex")
+        )
+        self.assertEqual(room["workspace"], "current")
+
+    def test_seat_model_is_editable_without_a_forced_default(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Model Team", "Use selected model", str(self.dir), ["builder"], "grok")
+        )
+        self.assertEqual(room["roles"][0]["model"], "")
+        updated = ar.set_seat(self.house, room["id"], "builder", model="ornith-1.5-35b-a3b")
+        self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
+
+    def test_model_catalog_includes_lm_studio_entries(self):
+        options = harness.grok_model_options()
+        values = {item["value"] for item in options}
+        self.assertIn("ornith-1.5-35b-a3b", values)
+
+    def test_multi_agent_cli_is_the_default_local_harness(self):
+        spec = harness.get("multi-agent-cli")
+        self.assertEqual(spec["family"], "Local")
+        self.assertEqual(harness.default_settings()["default_harness"], "multi-agent-cli")
+        self.assertEqual(harness.resolve_seat_harness(harness.default_settings(), "builder"), "multi-agent-cli")
+
+    def test_multi_agent_cli_launches_standalone_mach(self):
+        argv = harness.launch_argv("multi-agent-cli", "Reply exactly LOCAL_OK", model="ornith-1.5-9b")
+        self.assertIn("multi_agent_cli.cli", argv)
+        self.assertIn("lmstudio", argv)
+        self.assertIn("ornith-1.5-9b", argv)
+        self.assertIn("Reply exactly LOCAL_OK", argv)
+
+    def test_multi_agent_cli_discovers_model_when_seat_has_no_model(self):
+        with mock.patch.object(harness, "lmstudio_default_model", return_value="ornith-1.5-9b"):
+            argv = harness.launch_argv("multi-agent-cli", "hello")
+        self.assertIn("--model", argv)
+        self.assertIn("ornith-1.5-9b", argv)
+
+    def test_lmstudio_model_options_filters_non_generation_models(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): return None
+            def read(self):
+                return json.dumps({"data": [
+                    {"id": "text-7b"}, {"id": "embed-local"}, {"id": "reranker-1b"}
+                ]}).encode()
+        with mock.patch.object(harness.urlrequest, "urlopen", return_value=Response()):
+            options = harness.lmstudio_model_options()
+        values = {item["value"] for item in options}
+        self.assertIn("text-7b", values)
+        self.assertNotIn("embed-local", values)
+        self.assertNotIn("reranker-1b", values)
+
+    def test_stop_room_terminates_process_group_and_closes_terminal_window(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Stop Team", "Stop every seat", str(self.dir), ["builder"], "codex")
+        )
+        self.house.mutate(
+            lambda d: ar.find_room(d, room["id"])["roles"][0].update(
+                {"status": "running", "pid": 4321, "app_id": "org.omarchy.agent-room.rm-test.builder"}
+            )
+        )
+        clients = json.dumps([{"address": "0x123", "class": "org.omarchy.agent-room.rm-test.builder"}])
+        with mock.patch.object(ar.os, "getpgid", return_value=4321) as getpgid, \
+             mock.patch.object(ar.os, "killpg") as killpg, \
+             mock.patch.object(ar.subprocess, "check_output", return_value=clients), \
+             mock.patch.object(ar.subprocess, "run") as run, \
+             mock.patch.object(ar, "omarchy_version", return_value="test"), \
+             mock.patch.object(ar, "process_alive", return_value=True):
+            ar.stop_room(self.house, room["id"])
+        getpgid.assert_called_once_with(4321)
+        killpg.assert_called_once()
+        self.assertIn(
+            mock.call(["hyprctl", "dispatch", 'hl.dsp.window.close({ window = "address:0x123" })'], check=False, stdout=mock.ANY, stderr=mock.ANY),
+            run.call_args_list,
+        )
+
+    def test_health_reports_stale_or_failed_seats(self):
+        room = {"id": "rm-health", "name": "Health", "roles": [
+            {"id": "builder", "name": "Builder", "status": "running", "pid": 999999},
+            {"id": "reviewer", "name": "Reviewer", "status": "error", "pid": 0, "error": "adapter missing"},
+        ]}
+        health = ar.derive_health({"rooms": [room], "mail": [], "work": [], "claims": [], "board": []})
+        titles = {item["title"] for item in health}
+        self.assertIn("Seat is stale", titles)
+        self.assertIn("Seat failed", titles)
+
     def test_board_and_work_and_claims(self):
         room = self.house.mutate(
             lambda d: ar.create_room(d, "Build", "Ship it", str(self.dir), ["builder", "judge"], "codex")
@@ -58,6 +260,21 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(snap["claims"][0]["path"], "tests/test_house.py")
         self.assertTrue(any(h["title"] == "Help requested" for h in snap["health"]))
 
+    def test_operator_context_plan_and_work_lifecycle(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Operations", "Run the workflow", str(self.dir), ["builder"], "codex")
+        )
+        context = self.house.mutate(lambda d: ar.add_context(d, room["id"], "operator", "Prioritize the release notes."))
+        plan = self.house.mutate(lambda d: ar.add_plan(d, room["id"], "operator", "Review the release checklist"))
+        work = self.house.mutate(lambda d: ar.create_work(d, room["id"], "Release", "Prepare the release", "operator"))
+        self.house.mutate(lambda d: ar.complete_plan(d, plan["id"]))
+        self.house.mutate(lambda d: ar.claim_work(d, work["id"], "Builder"))
+        self.house.mutate(lambda d: ar.complete_work(d, work["id"], "Builder", "Publish the notes"))
+        snap = self.house.snapshot()
+        self.assertEqual(snap["context"][0]["id"], context["id"])
+        self.assertEqual(snap["plan"][0]["status"], "completed")
+        self.assertEqual(snap["work"][0]["status"], "completed")
+
     def test_mcp_tools_call(self):
         room = ar.call_tool(
             "room_create",
@@ -73,57 +290,114 @@ class HouseTests(unittest.TestCase):
         help_post = ar.call_tool("ask_help", {"title": "stuck", "body": "need a second pair"}, self.house)
         posts = ar.call_tool("board_list", {}, self.house)
         self.assertEqual(posts[0]["id"], help_post["id"])
+        updated = ar.call_tool("set_seat", {"room_id": room["id"], "role_id": "coordinator", "model": "ornith-1.5-35b-a3b"}, self.house)
+        self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
+
+    def test_mcp_accepts_newline_delimited_json(self):
+        class Stream:
+            def __init__(self, value=b""):
+                self.buffer = io.BytesIO(value)
+
+        old_framing = ar.MCP_FRAMING
+        try:
+            ar.MCP_FRAMING = "content-length"
+            with mock.patch.object(sys, "stdin", Stream(b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n')), mock.patch.object(sys, "stdout", Stream()) as stdout:
+                request = ar.mcp_read()
+                ar.mcp_write({"jsonrpc": "2.0", "id": 1, "result": {}})
+                self.assertEqual(request["method"], "ping")
+                self.assertEqual(json.loads(stdout.buffer.getvalue()), {"jsonrpc": "2.0", "id": 1, "result": {}})
+        finally:
+            ar.MCP_FRAMING = old_framing
 
     def test_unknown_room(self):
         with self.assertRaises(KeyError):
             self.house.mutate(lambda d: ar.find_room(d, "nope"))
 
-    def test_local_harness_command_targets_standalone_mach(self):
-        command, env = ar.local_harness_command(model="qwen-local", profile="developer")
+    def test_model_setting_and_message_reset(self):
+        ar.apply_settings(self.house, {"default_harness": "codex", "default_model": "gpt-5.2-codex"})
+        room = self.house.mutate(lambda d: ar.create_room(d, "Models", "Test model selection", str(self.dir), ["builder"], None))
+        self.assertEqual(room["roles"][0]["model"], "gpt-5.2-codex")
+        self.house.mutate(lambda d: ar.send_mail(d, room["id"], "Builder", ["*"], "hi", "hello"))
+        self.assertEqual(ar.clear_messages(self.house)["cleared"], 1)
+        self.assertEqual(self.house.snapshot()["mail"], [])
+        ar.reset_house(self.house)
+        self.assertEqual(self.house.snapshot()["rooms"], [])
+        self.assertEqual(self.house.snapshot()["settings"]["default_model"], "gpt-5.2-codex")
 
-        self.assertIn("multi_agent_cli.cli", command)
-        self.assertIn("--agents", command)
-        self.assertIn("lmstudio", command)
-        self.assertIn("--model", command)
-        self.assertIn("qwen-local", command)
-        self.assertIn("PYTHONPATH", env)
+    def test_mcp_protocol_negotiates_and_calls_tool(self):
+        proc = subprocess.Popen(
+            [str(ROOT / "bin/agent-room"), "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+        )
 
-    def test_mcp_local_agent_bridge(self):
+        def close_mcp():
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=3)
+            for stream in (proc.stdin, proc.stdout):
+                if stream:
+                    stream.close()
+
+        self.addCleanup(close_mcp)
+
+        def call(request):
+            body = json.dumps(request).encode()
+            proc.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
+            proc.stdin.flush()
+            headers = {}
+            while True:
+                line = proc.stdout.readline()
+                if line in (b"\n", b"\r\n"):
+                    break
+                key, value = line.decode().split(":", 1)
+                headers[key.lower()] = value.strip()
+            return json.loads(proc.stdout.read(int(headers["content-length"])))
+
+        initialized = call({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+        self.assertEqual(initialized["result"]["protocolVersion"], "2025-06-18")
+        listed = call({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        self.assertTrue(any(tool["name"] == "send_mail" for tool in listed["result"]["tools"]))
+        tool_names = {tool["name"] for tool in listed["result"]["tools"]}
+        self.assertTrue({"room_update", "room_delete"}.issubset(tool_names))
+        status = call({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "house_status", "arguments": {}}})
+        self.assertFalse(status.get("result", {}).get("isError", False))
+
+    def test_edit_team_goal_and_delete_team(self):
+        room = self.house.mutate(lambda d: ar.create_room(d, "Draft", "Old goal", str(self.dir), ["builder"], "codex"))
+        updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], "Renamed", "New goal"))
+        self.assertEqual((updated["name"], updated["goal"]), ("Renamed", "New goal"))
+        self.house.mutate(lambda d: ar.send_mail(d, room["id"], "Builder", ["*"], "hi", "message"))
+        deleted = ar.delete_room(self.house, room["id"])
+        self.assertEqual(deleted["id"], room["id"])
+        self.assertEqual(self.house.snapshot()["rooms"], [])
+        self.assertEqual(self.house.snapshot()["mail"], [])
+
+    def test_mixed_harness_and_acp_seats(self):
         room = self.house.mutate(
-            lambda d: ar.create_room(d, "Local", "Run", str(self.dir), ["coordinator"])
-        )
-        original = ar.run_local_agent
-        try:
-            ar.run_local_agent = lambda **kwargs: {"content": "local-ok", "model": kwargs["model"]}
-            result = ar.call_tool(
-                "run_local_agent",
-                {"room_id": room["id"], "goal": "hello", "model": "qwen-local"},
-                self.house,
+            lambda d: ar.create_room(
+                d,
+                "Mix",
+                "Use several CLIs",
+                str(self.dir),
+                ["coordinator", "builder", "judge"],
+                "grok",
+                {
+                    "coordinator": {"harness": "grok", "transport": "tui"},
+                    "builder": {"harness": "codex", "transport": "tui"},
+                    "judge": {"harness": "hermes", "transport": "acp"},
+                },
             )
-        finally:
-            ar.run_local_agent = original
-        self.assertEqual(result["content"], "local-ok")
-        self.assertEqual(result["model"], "qwen-local")
-
-    def test_mcp_stdio_protocol_exposes_local_harness(self):
-        requests = [
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-        ]
-        completed = __import__("subprocess").run(
-            [str(ROOT / "bin" / "agent-room"), "mcp"],
-            input="\n".join(json.dumps(item) for item in requests) + "\n",
-            capture_output=True,
-            text=True,
-            check=False,
         )
-        responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
-
-        self.assertEqual(completed.returncode, 0)
-        self.assertEqual(responses[0]["result"]["protocolVersion"], "2024-11-05")
-        tool_names = {tool["name"] for tool in responses[-1]["result"]["tools"]}
-        self.assertIn("run_local_agent", tool_names)
+        by_id = {r["id"]: r for r in room["roles"]}
+        self.assertEqual(by_id["coordinator"]["harness"], "grok")
+        self.assertEqual(by_id["builder"]["harness"], "codex")
+        self.assertEqual(by_id["judge"]["harness"], "hermes")
+        self.assertEqual(by_id["judge"]["transport"], "acp")
+        settings = ar.apply_settings(self.house, {"default_harness": "codex", "acp_enabled": True})
+        self.assertEqual(settings["default_harness"], "codex")
+        import harness as hx
+        grok = hx.get("grok-build")
+        self.assertEqual(grok["id"], "grok")
+        self.assertTrue(grok["acp"])
 
 
 if __name__ == "__main__":

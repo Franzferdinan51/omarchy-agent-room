@@ -4,5 +4,5 @@
   <path d="M30 37h68a8 8 0 0 1 8 8v38a8 8 0 0 1-8 8H57l-17 14V91h-10a8 8 0 0 1-8-8V45a8 8 0 0 1 8-8Z" fill="url(#g)"/>
   <circle cx="47" cy="64" r="7" fill="#10131d"/><circle cx="81" cy="64" r="7" fill="#10131d"/>
   <path d="M48 78c8 7 24 7 32 0" fill="none" stroke="#10131d" stroke-width="6" stroke-linecap="round"/>
-  <path d="M64 22v15M55 22h18" stroke="#9ee7ff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M64 22v15M55 22h18" stroke="#9ee5ff" stroke-width="5" stroke-linecap="round"/>
 </svg>

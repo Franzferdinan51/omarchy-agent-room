@@ -44,7 +44,7 @@ append_mcp_toml() {
   local heading="$2"
   mkdir -p "$(dirname "$file")"
   touch "$file"
-  if grep -q "$heading" "$file" 2>/dev/null; then
+  if grep -Fq "$heading" "$file" 2>/dev/null; then
     return 0
   fi
   cat >> "$file" <<EOF
