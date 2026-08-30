@@ -606,6 +606,7 @@ Item {
 
           Flow {
             width: parent.width
+            height: 40
             spacing: Style.space(8)
             Repeater {
               model: [
@@ -621,6 +622,7 @@ Item {
               ]
               delegate: Button {
                 required property var modelData
+                height: 36
                 text: modelData.count !== undefined && modelData.count !== null
                   ? (modelData.label + "  " + modelData.count)
                   : modelData.label
