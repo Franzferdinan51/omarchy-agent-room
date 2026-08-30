@@ -475,6 +475,11 @@ Item {
                     { label: "MAIL", value: String(root.stats.messages || 0), caption: "visible messages" }
                   ]
                 }
+                Button {
+                  text: "Open Settings"
+                  bordered: true
+                  onClicked: root.tab = "settings"
+                }
                 PanelSectionHeader { text: "HERMES"; foreground: root.foreground }
                 Text {
                   width: parent.width
