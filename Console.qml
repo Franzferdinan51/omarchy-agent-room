@@ -511,10 +511,12 @@ Item {
                     { label: "MAIL", value: String(root.stats.messages || 0), caption: "visible messages" }
                   ]
                 }
-                Button {
-                  text: "Open Settings"
-                  bordered: true
-                  onClicked: root.tab = "settings"
+                Row {
+                  spacing: Style.space(8)
+                  Button { text: "Create room"; bordered: true; onClicked: root.tab = "house" }
+                  Button { text: "Open Teams"; bordered: true; onClicked: root.tab = "teams" }
+                  Button { text: "Review room"; bordered: true; onClicked: root.reviewRoom() }
+                  Button { text: "Settings"; bordered: true; onClicked: root.tab = "settings" }
                 }
                 PanelSectionHeader { text: "HERMES"; foreground: root.foreground }
                 Text {

@@ -8,7 +8,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 
 ## What you get
 
-- **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams
+- **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams, and Settings, with Overview quick actions for the main workflows
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
 - **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
 - **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
@@ -77,4 +77,7 @@ agent-room create-room --name Superprompt --goal "Dissect SuperPrompt" --cwd ~/W
 agent-room start-room <room-id>
 agent-room send --room <id> --from operator --to '*' --body 'ship it'
 agent-room board-post --room <id> --author operator --title Help --body '...'
+agent-room models                         # list Grok-configured and cached models
+agent-room clear-messages                 # clear MCP Mail and help-board posts
+agent-room reset-house                    # reset rooms/work/claims, keep settings
 ```
