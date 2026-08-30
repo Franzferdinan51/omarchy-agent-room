@@ -1,5 +1,7 @@
 # Omarchy Agent Room
 
+Current release: **1.1.0** — native console with Overview, Health, Cmds, Context, Plan, Work, House, Teams, and Settings tabs.
+
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
 Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/2093763182951055751).
