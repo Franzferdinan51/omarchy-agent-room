@@ -193,6 +193,17 @@ class HouseTests(unittest.TestCase):
         self.assertIn("--model", argv)
         self.assertIn("ornith-1.5-9b", argv)
 
+    def test_local_seat_completion_updates_room_state(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Local lifecycle", "Run", str(self.dir), ["builder"], "multi-agent-cli")
+        )
+        result = ar.finish_local_seat(self.house, room["id"], "builder", 0)
+
+        self.assertEqual(result["status"], "completed")
+        restored = self.house.snapshot()["rooms"][0]
+        self.assertEqual(restored["roles"][0]["status"], "completed")
+        self.assertEqual(restored["roles"][0]["pid"], 0)
+
     def test_lmstudio_model_options_filters_non_generation_models(self):
         class Response:
             def __enter__(self): return self
