@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Launch one agent seat in a terminal on the agent-house workspace.
+# Args: room_id role program cwd prompt
+set -euo pipefail
+
+ROOM_ID="${1:?room id}"
+ROLE="${2:?role}"
+PROGRAM="${3:?program}"
+CWD="${4:?cwd}"
+PROMPT="${5:?prompt}"
+
+export AGENT_ROOM_ID="$ROOM_ID"
+export AGENT_ROOM_ROLE="$ROLE"
+export AGENT_ROOM_NAME="${AGENT_ROOM_NAME:-$ROLE}"
+export AGENT_ROOM_CWD="$CWD"
+
+if [[ ! -d $CWD ]]; then
+  mkdir -p "$CWD"
+fi
+cd "$CWD"
+
+if command -v hyprctl >/dev/null 2>&1; then
+  hyprctl dispatch workspace "name:agent-house" >/dev/null 2>&1 || true
+fi
+
+launch_tui=(omarchy-launch-tui "--app-id=org.omarchy.agent-room.${ROLE}")
+if ! command -v omarchy-launch-tui >/dev/null 2>&1; then
+  launch_tui=(xdg-terminal-exec --app-id="org.omarchy.agent-room.${ROLE}" -e)
+fi
+
+case "$PROGRAM" in
+  grok)
+    exec "${launch_tui[@]}" grok --permission-mode bypassPermissions -- "$PROMPT"
+    ;;
+  codex)
+    exec "${launch_tui[@]}" codex --approve-for-me -- "$PROMPT"
+    ;;
+  claude)
+    exec "${launch_tui[@]}" claude --permission-mode auto -- "$PROMPT"
+    ;;
+  opencode)
+    exec "${launch_tui[@]}" opencode --auto --prompt "$PROMPT"
+    ;;
+  gemini)
+    exec "${launch_tui[@]}" gemini --yolo --prompt-interactive "$PROMPT"
+    ;;
+  copilot)
+    exec "${launch_tui[@]}" copilot --allow-all --interactive "$PROMPT"
+    ;;
+  crush)
+    exec "${launch_tui[@]}" crush run "$PROMPT"
+    ;;
+  omp)
+    exec "${launch_tui[@]}" omp --auto-approve -- "$PROMPT"
+    ;;
+  pi)
+    exec "${launch_tui[@]}" pi "$PROMPT"
+    ;;
+  *)
+    exec "${launch_tui[@]}" "$PROGRAM" -- "$PROMPT"
+    ;;
+esac

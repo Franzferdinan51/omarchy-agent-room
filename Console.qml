@@ -1,0 +1,917 @@
+import QtQuick
+import QtQuick.Controls
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+
+Item {
+  id: root
+
+  property var shell: null
+  property var manifest: null
+  property bool closingFromHost: false
+  property string tab: "teams"
+  property int selectedRoom: 0
+  property var house: ({})
+  property string formName: ""
+  property string formGoal: ""
+  property string formCwd: Quickshell.env("HOME") + "/Work"
+  property string formProgram: ""
+  property bool formCoordinator: true
+  property bool formBuilder: true
+  property bool formReviewer: true
+  property bool formJudge: true
+  property bool formCreative: true
+  property string lastError: ""
+  property string composeText: ""
+  property bool startAfterCreate: false
+
+  readonly property color foreground: Color.foreground
+  readonly property color background: Color.background
+  readonly property color accent: Color.accent
+  readonly property color urgent: Color.urgent
+  readonly property color dim: Qt.darker(foreground, 1.55)
+  readonly property color card: Color.popups.background
+  readonly property string fontFamily: Style.font.family
+  readonly property string pluginDir: {
+    var s = Qt.resolvedUrl(".").toString()
+    if (s.indexOf("file://") === 0) s = s.substring(7)
+    while (s.length > 1 && s.charAt(s.length - 1) === "/")
+      s = s.substring(0, s.length - 1)
+    return s
+  }
+  readonly property var rooms: house.rooms || []
+  readonly property var stats: house.stats || ({})
+  readonly property var meta: house.meta || ({})
+  readonly property var room: rooms.length > 0 ? rooms[Math.min(selectedRoom, rooms.length - 1)] : null
+  readonly property var roomMail: {
+    var out = []
+    var mail = house.mail || []
+    if (!room) return out
+    for (var i = 0; i < mail.length; i++)
+      if (mail[i].room_id === room.id) out.push(mail[i])
+    return out
+  }
+  readonly property var roomWork: {
+    var out = []
+    var work = house.work || []
+    if (!room) return out
+    for (var i = 0; i < work.length; i++)
+      if (work[i].room_id === room.id) out.push(work[i])
+    return out
+  }
+  readonly property var roomBoard: {
+    var out = []
+    var board = house.board || []
+    if (!room) return out
+    for (var i = 0; i < board.length; i++)
+      if (board[i].room_id === room.id) out.push(board[i])
+    return out
+  }
+  readonly property int doneRoles: {
+    if (!room) return 0
+    var n = 0
+    var roles = room.roles || []
+    for (var i = 0; i < roles.length; i++)
+      if (roles[i].status === "complete") n++
+    return n
+  }
+
+  function open(payloadJson) {
+    closingFromHost = false
+    window.visible = true
+    reloadHouse()
+    Qt.callLater(function() { if (keyCatcher) keyCatcher.forceActiveFocus() })
+  }
+
+  function close() {
+    closingFromHost = true
+    window.visible = false
+    closingFromHost = false
+  }
+
+  function requestClose() {
+    if (shell && typeof shell.hide === "function")
+      shell.hide("io.github.franzferdinan51.agent-room")
+    else window.visible = false
+  }
+
+  function reloadHouse() {
+    houseFile.reload()
+  }
+
+  function parseHouse(raw) {
+    try {
+      house = JSON.parse(raw || "{}")
+      lastError = ""
+    } catch (e) {
+      lastError = "Could not read house state"
+    }
+  }
+
+  function runCli(args) {
+    if (cli.running) return
+    lastError = ""
+    cli.command = [pluginDir + "/bin/agent-room"].concat(args)
+    cli.running = true
+  }
+
+  function createRoom() {
+    var roles = []
+    if (formCoordinator) roles.push("coordinator")
+    if (formBuilder) roles.push("builder")
+    if (formReviewer) roles.push("reviewer")
+    if (formJudge) roles.push("judge")
+    if (formCreative) roles.push("creative-director")
+    if (!formName.trim() || !formGoal.trim()) {
+      lastError = "Name and goal are required"
+      return
+    }
+    var args = ["create-room", "--name", formName.trim(), "--goal", formGoal.trim(), "--cwd", formCwd.trim() || (Quickshell.env("HOME") + "/Work"), "--roles", roles.join(",")]
+    if (formProgram.trim()) args = args.concat(["--program", formProgram.trim()])
+    tab = "house"
+    runCli(args)
+  }
+
+  function startSelected() {
+    if (!room) return
+    runCli(["start-room", room.id])
+  }
+
+  function stopSelected() {
+    if (!room) return
+    runCli(["stop-room", room.id])
+  }
+
+  function hideMonitor() {
+    if (!room) return
+    runCli(["set-monitor", room.id, "--hidden", room.monitor_hidden ? "false" : "true"])
+  }
+
+  function reviewRoom() {
+    var args = ["review"]
+    if (room) args = args.concat(["--room", room.id])
+    runCli(args)
+  }
+
+  function sendCompose() {
+    if (!room || !composeText.trim()) return
+    runCli(["send", "--room", room.id, "--from", "operator", "--to", "*", "--subject", "Operator", "--body", composeText.trim()])
+    composeText = ""
+  }
+
+  FileView {
+    id: houseFile
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/agent-room/house.json"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.parseHouse(text())
+    onLoadFailed: root.runCli(["init"])
+    onFileChanged: reload()
+  }
+
+  Process {
+    id: cli
+    stdout: StdioCollector {
+      onStreamFinished: {
+        root.reloadHouse()
+        var text = this.text || ""
+        if (text.indexOf("\"id\"") >= 0) {
+          try {
+            var created = JSON.parse(text)
+            if (created && created.id) {
+              for (var i = 0; i < root.rooms.length; i++)
+                if (root.rooms[i].id === created.id) root.selectedRoom = i
+              if (root.startAfterCreate) {
+                root.startAfterCreate = false
+                root.runCli(["start-room", created.id])
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    stderr: StdioCollector {
+      onStreamFinished: {
+        if (this.text && this.text.trim()) root.lastError = this.text.trim()
+      }
+    }
+  }
+
+  Timer {
+    interval: 4000
+    running: window.visible
+    repeat: true
+    onTriggered: root.reloadHouse()
+  }
+
+  Component.onCompleted: root.runCli(["init"])
+
+  FloatingWindow {
+    id: window
+    title: "Agent Console"
+    color: root.background
+    implicitWidth: 980
+    implicitHeight: 860
+    minimumSize: Qt.size(720, 560)
+
+    onVisibleChanged: {
+      if (!visible && !root.closingFromHost && root.shell && typeof root.shell.hide === "function")
+        root.shell.hide("io.github.franzferdinan51.agent-room")
+    }
+
+    FocusScope {
+      id: focusScope
+      anchors.fill: parent
+      focus: true
+
+      PanelKeyCatcher {
+        id: keyCatcher
+        anchors.fill: parent
+        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || composeField.activeFocus || programField.activeFocus
+        onCloseRequested: root.requestClose()
+        onActivateRequested: {}
+
+        Column {
+          id: chrome
+          anchors.fill: parent
+          anchors.margins: Style.space(18)
+          spacing: Style.space(14)
+
+          Row {
+            width: parent.width
+            spacing: Style.space(12)
+
+            Text {
+              text: "󱚣"
+              color: root.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.title
+              verticalAlignment: Text.AlignVCenter
+              height: titleCol.height
+            }
+
+            Column {
+              id: titleCol
+              spacing: 2
+              Text {
+                text: "Agent Console"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+                font.bold: true
+              }
+              Text {
+                text: ((root.meta.program || "agent") + "  ·  " + (root.meta.omarchy || "omarchy")).toUpperCase()
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Item { width: Math.max(0, chrome.width - 280); height: 1 }
+
+            Button {
+              text: "REVIEW"
+              bordered: true
+              foreground: root.foreground
+              onClicked: root.reviewRoom()
+            }
+          }
+
+          Row {
+            spacing: Style.space(8)
+            Repeater {
+              model: [
+                { id: "overview", label: "Overview" },
+                { id: "health", label: "Health", count: root.stats.health || 0 },
+                { id: "cmds", label: "Cmds", count: root.stats.cmds || 0 },
+                { id: "context", label: "Context" },
+                { id: "plan", label: "Plan", count: root.stats.plan || 0 },
+                { id: "work", label: "Work", count: root.stats.active_work || 0 },
+                { id: "house", label: "House", count: root.stats.teams || 0 },
+                { id: "teams", label: "Teams", count: root.stats.teams || 0 }
+              ]
+              delegate: Button {
+                required property var modelData
+                text: modelData.count !== undefined && modelData.count !== null
+                  ? (modelData.label + "  " + modelData.count)
+                  : modelData.label
+                bordered: true
+                selected: root.tab === modelData.id
+                onClicked: root.tab = modelData.id
+              }
+            }
+          }
+
+          Text {
+            visible: root.lastError !== ""
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: root.lastError
+            color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          ScrollView {
+            id: scrollArea
+            width: parent.width
+            height: parent.height - y
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+            Column {
+              width: scrollArea.availableWidth
+              spacing: Style.space(16)
+
+              // ---------- OVERVIEW ----------
+              Column {
+                visible: root.tab === "overview"
+                width: parent.width
+                spacing: Style.space(12)
+                PanelSectionHeader { text: "HOUSE"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  text: "Rooms of coding agents, talking over MCP Mail, with a help board — all on disk, no web server."
+                }
+                StatsRow {
+                  width: parent.width
+                  items: [
+                    { label: "TEAMS", value: String(root.stats.teams || 0), caption: "rooms in the house" },
+                    { label: "RUNNING", value: String(root.stats.running || 0), caption: "active seats" },
+                    { label: "MAIL", value: String(root.stats.messages || 0), caption: "visible messages" }
+                  ]
+                }
+              }
+
+              // ---------- HEALTH ----------
+              Column {
+                visible: root.tab === "health"
+                width: parent.width
+                spacing: Style.space(10)
+                PanelSectionHeader { text: "HEALTH"; foreground: root.foreground }
+                Repeater {
+                  model: root.house.health || []
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    implicitHeight: healthCol.height + Style.space(16)
+                    color: root.card
+                    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    border.width: 1
+                    Column {
+                      id: healthCol
+                      x: Style.space(12)
+                      y: Style.space(8)
+                      width: parent.width - Style.space(24)
+                      spacing: 4
+                      Text {
+                        text: (modelData.level || "info").toUpperCase() + "  ·  " + (modelData.title || "")
+                        color: modelData.level === "error" ? root.urgent : root.accent
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+                      Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: modelData.message || ""
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                      }
+                    }
+                  }
+                }
+                Text {
+                  visible: (root.house.health || []).length === 0
+                  text: "Nothing to report."
+                  color: root.dim
+                  font.family: root.fontFamily
+                }
+              }
+
+              // ---------- CMDS ----------
+              Column {
+                visible: root.tab === "cmds"
+                width: parent.width
+                spacing: Style.space(8)
+                PanelSectionHeader { text: "COMMAND LOG"; foreground: root.foreground }
+                Repeater {
+                  model: (root.house.cmds || []).slice().reverse()
+                  delegate: Text {
+                    required property var modelData
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    text: (modelData.time || "") + "  " + (modelData.agent || "") + "  ·  " + (modelData.cmd || "")
+                  }
+                }
+              }
+
+              // ---------- CONTEXT ----------
+              Column {
+                visible: root.tab === "context"
+                width: parent.width
+                spacing: Style.space(8)
+                PanelSectionHeader { text: "CONTEXT"; foreground: root.foreground }
+                Repeater {
+                  model: root.house.context || []
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    implicitHeight: cxCol.height + Style.space(16)
+                    color: root.card
+                    border.width: 1
+                    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    Column {
+                      id: cxCol
+                      x: Style.space(12); y: Style.space(8)
+                      width: parent.width - Style.space(24)
+                      spacing: 4
+                      Text {
+                        text: (modelData.author || "") + "  ·  " + (modelData.time || "")
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                      Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: modelData.text || ""
+                        color: root.foreground
+                        font.family: root.fontFamily
+                      }
+                    }
+                  }
+                }
+                Text {
+                  visible: (root.house.context || []).length === 0
+                  text: "Agents write context notes through the agent-room MCP."
+                  color: root.dim
+                  font.family: root.fontFamily
+                }
+              }
+
+              // ---------- PLAN ----------
+              Column {
+                visible: root.tab === "plan"
+                width: parent.width
+                spacing: Style.space(8)
+                PanelSectionHeader { text: "PLAN"; foreground: root.foreground }
+                Repeater {
+                  model: root.house.plan || []
+                  delegate: Text {
+                    required property var modelData
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    text: "•  " + (modelData.text || "")
+                  }
+                }
+                Text {
+                  visible: (root.house.plan || []).length === 0
+                  text: "No plan items yet. Agents can call plan_add."
+                  color: root.dim
+                  font.family: root.fontFamily
+                }
+              }
+
+              // ---------- WORK ----------
+              Column {
+                visible: root.tab === "work"
+                width: parent.width
+                spacing: Style.space(12)
+                PanelSectionHeader { text: "AGENT WORKBENCH"; foreground: root.foreground }
+                StatsRow {
+                  width: parent.width
+                  items: [
+                    { label: "ACTIVE", value: String(root.stats.active_work || 0), caption: "resumable task capsules" },
+                    { label: "BLOCKED", value: String(root.stats.blocked_work || 0), caption: "need attention or input" },
+                    { label: "CLAIMS", value: String(root.stats.claims || 0), caption: "coordinated file paths" }
+                  ]
+                }
+                Text {
+                  text: "TASK CAPSULES  ·  " + (root.roomWork.length)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+                Repeater {
+                  model: root.tab === "work" ? root.roomWork : []
+                  delegate: Capsule {
+                    required property var modelData
+                    width: parent.width
+                    title: modelData.title || ""
+                    body: modelData.brief || ""
+                    nextLine: modelData.next || ""
+                    footer: (modelData.cwd || "") + "    " + (modelData.files || 0) + " FILES  ·  " + (modelData.claims || 0) + " CLAIMS"
+                    statusText: ((modelData.status || "") + "  ·  " + (modelData.owner || "")).toUpperCase()
+                    statusColor: modelData.status === "active" ? root.accent : root.dim
+                  }
+                }
+                Text {
+                  visible: root.roomWork.length === 0
+                  text: "No task capsules in this room yet."
+                  color: root.dim
+                  font.family: root.fontFamily
+                }
+              }
+
+              // ---------- HOUSE / CREATE ROOM ----------
+              Column {
+                visible: root.tab === "house"
+                width: parent.width
+                spacing: Style.space(12)
+                PanelSectionHeader { text: "CREATE A ROOM"; foreground: root.foreground }
+                Text {
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  text: "A room is a named goal plus seats. Starting it opens each agent in a terminal on the agent-house workspace. They talk with MCP Mail and can ask for help on the board."
+                }
+                Text { text: "NAME"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  id: nameField
+                  width: parent.width
+                  placeholderText: "Superprompt"
+                  text: root.formName
+                  onTextChanged: root.formName = text
+                }
+                Text { text: "GOAL"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  id: goalField
+                  width: parent.width
+                  placeholderText: "What should the team deliver?"
+                  text: root.formGoal
+                  onTextChanged: root.formGoal = text
+                }
+                Text { text: "WORKING DIRECTORY"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  id: cwdField
+                  width: parent.width
+                  text: root.formCwd
+                  onTextChanged: root.formCwd = text
+                }
+                Text { text: "PROGRAM (blank = default agent)"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
+                TextField {
+                  id: programField
+                  width: parent.width
+                  placeholderText: root.meta.program || "grok"
+                  text: root.formProgram
+                  onTextChanged: root.formProgram = text
+                }
+                Toggle { width: parent.width; label: "Coordinator"; description: "Routes work and synthesizes the result"; checked: root.formCoordinator; onClicked: root.formCoordinator = !root.formCoordinator }
+                Toggle { width: parent.width; label: "Builder"; description: "Implements the assignment"; checked: root.formBuilder; onClicked: root.formBuilder = !root.formBuilder }
+                Toggle { width: parent.width; label: "Reviewer"; description: "Reads the work and files findings"; checked: root.formReviewer; onClicked: root.formReviewer = !root.formReviewer }
+                Toggle { width: parent.width; label: "Judge"; description: "Acceptance criteria and keep/remove"; checked: root.formJudge; onClicked: root.formJudge = !root.formJudge }
+                Toggle { width: parent.width; label: "Creative-director"; description: "Novelty and framing"; checked: root.formCreative; onClicked: root.formCreative = !root.formCreative }
+                Row {
+                  spacing: Style.space(8)
+                  Button { text: "Create room"; bordered: true; onClicked: root.createRoom() }
+                  Button { text: "Create and start"; bordered: true; onClicked: { root.startAfterCreate = true; root.createRoom() } }
+                }
+
+                PanelSectionHeader { text: "ROOMS"; foreground: root.foreground }
+                Repeater {
+                  model: root.rooms
+                  delegate: Button {
+                    required property var modelData
+                    required property int index
+                    width: parent.width
+                    leftAlign: true
+                    bordered: true
+                    selected: root.selectedRoom === index
+                    text: (modelData.name || "") + "  ·  " + (modelData.status || "idle") + "  ·  " + ((modelData.roles || []).length) + " seats"
+                    onClicked: { root.selectedRoom = index; root.tab = "teams" }
+                  }
+                }
+              }
+
+              // ---------- TEAMS ----------
+              Column {
+                visible: root.tab === "teams"
+                width: parent.width
+                spacing: Style.space(12)
+
+                PanelSectionHeader { text: "AGENT TEAMS"; foreground: root.foreground }
+                StatsRow {
+                  width: parent.width
+                  items: [
+                    { label: "TEAMS", value: String(root.stats.teams || 0), caption: "coordinated goals" },
+                    { label: "RUNNING", value: String(root.stats.running || 0), caption: "active agents" },
+                    { label: "CHAT", value: String(root.roomMail.length), caption: "visible messages" }
+                  ]
+                }
+
+                Text {
+                  visible: !!root.room
+                  text: "TEAM MONITOR  ·  " + (root.rooms.length)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+                Text {
+                  visible: !!root.room
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  text: "Follow Room Mail as one chat, watch every assignment, and find the coordinator's integrated result without the House administration noise."
+                }
+
+                Capsule {
+                  visible: !!root.room && !(root.room && root.room.monitor_hidden)
+                  width: parent.width
+                  title: root.room ? (root.room.name || "") : ""
+                  body: root.room ? (root.room.goal || "") : ""
+                  nextLine: ""
+                  footer: root.roleLine()
+                  statusText: root.room
+                    ? ((root.room.status || "idle").toUpperCase() + "  ·  " + root.doneRoles + "/" + ((root.room.roles || []).length) + " DONE")
+                    : ""
+                  statusColor: root.room && root.room.status === "running" ? root.accent : root.dim
+                }
+
+                Row {
+                  visible: !!root.room
+                  spacing: Style.space(8)
+                  Button {
+                    text: "▶  Team started"
+                    bordered: true
+                    enabled: root.room && root.room.status !== "running"
+                    onClicked: root.startSelected()
+                  }
+                  Button {
+                    text: "▣  Coordinator"
+                    bordered: true
+                    onClicked: root.startSelected()
+                  }
+                  Button {
+                    text: root.room && root.room.monitor_hidden ? "Show monitor" : "▾  Hide monitor"
+                    bordered: true
+                    onClicked: root.hideMonitor()
+                  }
+                  Button {
+                    text: "Stop"
+                    bordered: true
+                    visible: root.room && root.room.status === "running"
+                    onClicked: root.stopSelected()
+                  }
+                }
+
+                Text {
+                  visible: !!root.room
+                  text: "TEAM CHAT  ·  " + root.roomMail.length + " MESSAGES"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+
+                Repeater {
+                  model: root.tab === "teams" ? root.roomMail : []
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    implicitHeight: mailCol.height + Style.space(20)
+                    color: root.card
+                    border.width: 1
+                    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    Column {
+                      id: mailCol
+                      x: Style.space(14)
+                      y: Style.space(10)
+                      width: parent.width - Style.space(28)
+                      spacing: 6
+                      Row {
+                        width: parent.width
+                        Text {
+                          text: (modelData.room || "") + "  ·  " + (modelData.from || "")
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.body
+                          font.bold: true
+                        }
+                        Item { width: 12; height: 1 }
+                        Text {
+                          text: modelData.time || ""
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+                      Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: (modelData.subject ? (modelData.subject + " — ") : "") + (modelData.body || "")
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.body
+                      }
+                    }
+                  }
+                }
+
+                Text {
+                  visible: !!root.room
+                  text: "HELP BOARD  ·  " + root.roomBoard.length
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+                Repeater {
+                  model: root.tab === "teams" ? root.roomBoard : []
+                  delegate: Rectangle {
+                    required property var modelData
+                    width: parent.width
+                    implicitHeight: bdCol.height + Style.space(18)
+                    color: root.card
+                    border.width: 1
+                    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    Column {
+                      id: bdCol
+                      x: Style.space(14); y: Style.space(10)
+                      width: parent.width - Style.space(28)
+                      spacing: 4
+                      Text {
+                        text: ((modelData.status || "open").toUpperCase()) + "  ·  " + (modelData.author || "") + "  ·  " + (modelData.title || "")
+                        color: root.accent
+                        font.family: root.fontFamily
+                        font.bold: true
+                      }
+                      Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: modelData.body || ""
+                        color: root.foreground
+                        font.family: root.fontFamily
+                      }
+                    }
+                  }
+                }
+
+                Row {
+                  visible: !!root.room
+                  spacing: Style.space(8)
+                  width: parent.width
+                  TextField {
+                    id: composeField
+                    width: parent.width - 88
+                    placeholderText: "Mail the room…"
+                    text: root.composeText
+                    onTextChanged: root.composeText = text
+                    Keys.onReturnPressed: root.sendCompose()
+                  }
+                  Button { text: "Send"; bordered: true; onClicked: root.sendCompose() }
+                }
+
+                Text {
+                  visible: !root.room
+                  width: parent.width
+                  wrapMode: Text.Wrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  text: "No rooms yet. Open the House tab and create one."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function roleLine() {
+    if (!room) return ""
+    var parts = []
+    var roles = room.roles || []
+    for (var i = 0; i < roles.length; i++) {
+      var r = roles[i]
+      parts.push((r.name || r.id).toUpperCase() + "  ·  " + String(r.status || "idle").toUpperCase())
+    }
+    return parts.join("   ")
+  }
+
+  component StatsRow: Row {
+    id: statsRow
+    property var items: []
+    spacing: Style.space(10)
+    Repeater {
+      model: statsRow.items
+      delegate: Rectangle {
+        required property var modelData
+        width: Math.max(160, (statsRow.width - 20) / Math.max(1, statsRow.items.length))
+        implicitHeight: 86
+        color: root.card
+        border.width: 1
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+        Column {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.margins: Style.space(14)
+          spacing: 2
+          Text {
+            text: modelData.label || ""
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+          Text {
+            text: modelData.value || "0"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.title
+          }
+          Text {
+            text: modelData.caption || ""
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+    }
+  }
+
+  component Capsule: Rectangle {
+    property string title: ""
+    property string body: ""
+    property string nextLine: ""
+    property string footer: ""
+    property string statusText: ""
+    property color statusColor: root.accent
+    color: root.card
+    border.width: 1
+    border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+    implicitHeight: capCol.height + Style.space(24)
+    Column {
+      id: capCol
+      x: Style.space(16)
+      y: Style.space(12)
+      width: parent.width - Style.space(32)
+      spacing: 8
+      Row {
+        width: parent.width
+        Text {
+          width: parent.width - 180
+          wrapMode: Text.Wrap
+          text: title
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
+          font.bold: true
+        }
+      }
+      Text {
+        anchors.right: capCol.right
+        text: statusText
+        color: statusColor
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+      Text {
+        width: parent.width
+        wrapMode: Text.Wrap
+        text: body
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+      Text {
+        visible: nextLine !== ""
+        width: parent.width
+        wrapMode: Text.Wrap
+        text: "NEXT  " + nextLine
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        width: parent.width
+        wrapMode: Text.Wrap
+        text: footer
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+}
