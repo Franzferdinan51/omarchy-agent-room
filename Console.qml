@@ -404,9 +404,17 @@ Item {
               foreground: root.foreground
               onClicked: root.reviewRoom()
             }
+
+            Button {
+              text: "SETTINGS"
+              bordered: true
+              foreground: root.foreground
+              onClicked: root.tab = "settings"
+            }
           }
 
-          Row {
+          Flow {
+            width: parent.width
             spacing: Style.space(8)
             Repeater {
               model: [
