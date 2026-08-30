@@ -31,7 +31,7 @@ STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
 LOCK_PATH = STATE_DIR / "house.lock"
 BRIEFS_DIR = STATE_DIR / "briefs"
-DEFAULT_WORKSPACE = "agent-house"
+DEFAULT_WORKSPACE = "current"
 DEFAULT_ROLES = [
     "coordinator",
     "builder",
@@ -1093,6 +1093,7 @@ def set_seat(
     role_id: str,
     harness: str | None = None,
     transport: str | None = None,
+    model: str | None = None,
     restart: bool = False,
 ) -> dict[str, Any]:
     def _set(current: dict[str, Any]) -> dict[str, Any]:
@@ -1106,6 +1107,8 @@ def set_seat(
             role["harness"] = hid
         if transport in ("tui", "acp"):
             role["transport"] = transport
+        if model is not None:
+            role["model"] = model.strip()
         log_cmd(current, "house", f"set-seat {role_id}", "ok")
         return role
 
@@ -1920,6 +1923,7 @@ def cli(argv: list[str] | None = None) -> int:
     p_seat.add_argument("role_id")
     p_seat.add_argument("--harness", default="")
     p_seat.add_argument("--transport", choices=["", "tui", "acp"], default="")
+    p_seat.add_argument("--model", default=None)
     p_seat.add_argument("--restart", action="store_true")
 
     p_ss = sub.add_parser("start-seat")
@@ -2093,6 +2097,7 @@ def cli(argv: list[str] | None = None) -> int:
                 args.role_id,
                 args.harness or None,
                 args.transport or None,
+                args.model,
                 args.restart,
             )
         )

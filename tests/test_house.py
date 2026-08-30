@@ -153,6 +153,20 @@ class HouseTests(unittest.TestCase):
         updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], workspace="name:dev"))
         self.assertEqual(updated["workspace"], "name:dev")
 
+    def test_room_defaults_to_current_workspace(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Current Page", "Stay where I am", str(self.dir), ["builder"], "codex")
+        )
+        self.assertEqual(room["workspace"], "current")
+
+    def test_seat_model_is_editable_without_a_forced_default(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Model Team", "Use selected model", str(self.dir), ["builder"], "grok")
+        )
+        self.assertEqual(room["roles"][0]["model"], "")
+        updated = ar.set_seat(self.house, room["id"], "builder", model="ornith-1.5-35b-a3b")
+        self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
+
     def test_stop_room_terminates_process_group_and_closes_terminal_window(self):
         room = self.house.mutate(
             lambda d: ar.create_room(d, "Stop Team", "Stop every seat", str(self.dir), ["builder"], "codex")

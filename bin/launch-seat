@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch one agent seat in a terminal on the agent-house workspace.
+# Launch one agent seat in a terminal on the selected Hyprland workspace.
 # Args: room_id role program cwd prompt workspace
 set -euo pipefail
 
@@ -8,7 +8,7 @@ ROLE="${2:?role}"
 PROGRAM="${3:?program}"
 CWD="${4:?cwd}"
 PROMPT="${5:?prompt}"
-WORKSPACE="${6:-agent-house}"
+WORKSPACE="${6:-current}"
 
 export AGENT_ROOM_ID="$ROOM_ID"
 export AGENT_ROOM_ROLE="$ROLE"
@@ -20,7 +20,7 @@ if [[ ! -d $CWD ]]; then
 fi
 cd "$CWD"
 
-if command -v hyprctl >/dev/null 2>&1; then
+if command -v hyprctl >/dev/null 2>&1 && [[ "$WORKSPACE" != "current" && "$WORKSPACE" != "active" && "$WORKSPACE" != "here" ]]; then
   workspace_target="$WORKSPACE"
   if [[ ! "$workspace_target" =~ ^[0-9]+$ && "$workspace_target" != name:* && "$workspace_target" != special:* ]]; then
     workspace_target="name:$workspace_target"

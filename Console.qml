@@ -50,7 +50,7 @@ Item {
   property bool settingsMixed: true
   property bool settingsAcp: true
   property bool settingsHermes: true
-  property string settingsWorkspace: "agent-house"
+  property string settingsWorkspace: "current"
   property bool settingsHydrated: false
   property var grokModelOptions: []
   property string telegramToken: ""
@@ -308,7 +308,7 @@ Item {
     editRoomId = selected.id || ""
     editRoomName = selected.name || ""
     editRoomGoal = selected.goal || ""
-    editRoomWorkspace = selected.workspace || root.settingsWorkspace || "agent-house"
+    editRoomWorkspace = selected.workspace || root.settingsWorkspace || "current"
     deleteArmed = false
   }
 
@@ -318,6 +318,17 @@ Item {
       return
     }
     runCli(["update-room", editRoomId, "--name", editRoomName.trim(), "--goal", editRoomGoal.trim(), "--workspace", editRoomWorkspace.trim()])
+  }
+
+  function editCurrentRoom() {
+    if (!root.room) return
+    root.selectRoomForEdit(root.selectedRoom)
+    root.tab = "house"
+  }
+
+  function setSeatModel(roleId, model) {
+    if (!root.room) return
+    root.runCli(["set-seat", root.room.id, roleId, "--model", model || ""])
   }
 
   function deleteSelectedRoom() {
@@ -853,7 +864,7 @@ Item {
                   wrapMode: Text.Wrap
                   color: root.dim
                   font.family: root.fontFamily
-                  text: "A room is a named goal plus seats. Starting it opens each agent in a terminal on the agent-house workspace. They talk with MCP Mail and can ask for help on the board."
+                  text: "A room is a named goal plus seats. Starting it opens each agent in the current workspace unless you choose a number or name below. They talk with MCP Mail and can ask for help on the board."
                 }
                 Text { text: "NAME"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
@@ -882,11 +893,11 @@ Item {
                 TextField {
                   id: workspaceField
                   width: parent.width
-                  placeholderText: root.settingsWorkspace || "agent-house"
+                  placeholderText: root.settingsWorkspace || "current"
                   text: root.formWorkspace
                   onTextChanged: root.formWorkspace = text
                 }
-                Text { width: parent.width; wrapMode: Text.Wrap; text: "Hyprland workspace number or name, such as 2, 4, or name:dev. Leave blank to use the default workspace."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                Text { width: parent.width; wrapMode: Text.Wrap; text: "Use current for the page you are on, a number such as 2 or 4, or a name such as name:dev."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
                 Text { text: "PROGRAM (blank = default agent)"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
                   id: programField
@@ -1091,6 +1102,7 @@ Item {
                     enabled: root.room && root.room.status === "running"
                     onClicked: root.stopSelected()
                   }
+                  Button { text: "Edit team"; bordered: true; onClicked: root.editCurrentRoom() }
                 }
 
                 Text {
@@ -1129,6 +1141,13 @@ Item {
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
                         }
+                      }
+                      Dropdown {
+                        width: 190
+                        label: "Model"
+                        value: modelData.model || root.settingsDefaultModel
+                        options: root.modelOptionsFor(modelData.harness || modelData.program || root.settingsDefaultHarness)
+                        onChanged: function(v) { root.setSeatModel(modelData.id, v) }
                       }
                       Button {
                         text: modelData.status === "running" ? "Stop" : "Start"

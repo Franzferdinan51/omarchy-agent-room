@@ -25,7 +25,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide
-- **Launch** — start a room and each seat opens in a terminal on that team's selected Hyprland workspace (with `agent-house` as the default)
+- **Launch** — start a room and each seat opens in a terminal on that team's selected Hyprland workspace (`current` keeps the page you are on; numbers and named workspaces are supported)
 - **Shutdown** — Teams has a clear **Stop team** action that terminates seat process groups and closes their terminal windows
 
 ## Install on Omarchy 4
@@ -56,7 +56,7 @@ or click the robot icon on the bar.
 ## How a room runs
 
 1. House tab → name, goal, working directory, terminal workspace, seats → **Create and start**
-2. Each seat opens in your default terminal on that team's selected Hyprland workspace with a briefing that tells it to use MCP Mail and the help board. Use a number (`2`, `4`) or a name (`dev`; `name:dev` also works).
+2. Each seat opens in your default terminal on that team's selected Hyprland workspace with a briefing that tells it to use MCP Mail and the help board. Use `current`, a number (`2`, `4`), or a name (`dev`; `name:dev` also works).
 3. Teams tab follows Room Mail as one chat
 4. **REVIEW** asks the coordinator to synthesize and the reviewer/judge to check
 

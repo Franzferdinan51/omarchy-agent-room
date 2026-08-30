@@ -267,7 +267,7 @@ def acp_argv(harness_id: str) -> list[str]:
 
 def default_settings() -> dict[str, Any]:
     return {
-        "workspace": "agent-house",
+        "workspace": "current",
         "default_harness": "grok",
         "default_model": "",
         "mixed_harness": True,
