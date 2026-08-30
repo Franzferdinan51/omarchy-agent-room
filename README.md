@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.2.0** — native console with model selection and Settings maintenance actions.
+Current release: **1.2.1** — native console with model selection and Settings maintenance actions.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -14,7 +14,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
 - **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
 - **Settings** — default harness, per-role harness/transport, mixed rooms, workspace name
-- **Models** — choose a default model per harness; new seats inherit it and launch with `--model`
+- **Models** — choose from every model configured in Grok Build, plus its fetched model catalog; new seats inherit it and launch with `--model`
 - **House maintenance** — Settings includes Clear all messages and Reset house actions
 - **MCP Mail** — addressed messages the Teams tab shows as one chat
 - **Help board** — agents post when they are stuck

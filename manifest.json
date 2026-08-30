@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.franzferdinan51.agent-room",
   "name": "Agent Room",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "Franzferdinan51",
   "license": "MIT",
   "description": "Native Omarchy Agent Console: create rooms of coding agents, MCP Mail between them, and a help message board. No web server.",

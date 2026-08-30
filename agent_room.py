@@ -24,7 +24,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -1559,6 +1559,7 @@ def cli(argv: list[str] | None = None) -> int:
     sub.add_parser("reset-house", help="Reset rooms, messages, work, and claims while keeping settings")
 
     sub.add_parser("harnesses", help="List harnesses and ACP adapters")
+    sub.add_parser("models", help="List models configured or available in Grok Build")
     sub.add_parser("hermes", help="Hermes Agent status")
 
     p_set = sub.add_parser("set-settings")
@@ -1654,6 +1655,9 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "harnesses":
         print_json({"harnesses": hx.detect(), "acp": connectors.acp_catalog()})
+        return 0
+    if args.cmd == "models":
+        print_json({"models": hx.grok_model_options()})
         return 0
     if args.cmd == "hermes":
         print_json(connectors.hermes_status())

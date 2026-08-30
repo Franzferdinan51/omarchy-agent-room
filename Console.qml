@@ -44,6 +44,7 @@ Item {
   property bool settingsHermes: true
   property string settingsWorkspace: "agent-house"
   property bool settingsHydrated: false
+  property var grokModelOptions: []
 
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
@@ -112,6 +113,8 @@ Item {
     { value: "acp", label: "ACP stdio" }
   ]
   function modelOptionsFor(harness) {
+    if (harness === "grok" && root.grokModelOptions.length > 0)
+      return root.grokModelOptions
     var options = {
       grok: [{ value: "", label: "Auto (account default)" }, { value: "grok-4.1", label: "Grok 4.1" }, { value: "grok-4.1-mini", label: "Grok 4.1 Mini" }],
       codex: [{ value: "", label: "Auto (account default)" }, { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" }, { value: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini" }],
@@ -121,6 +124,12 @@ Item {
       opencode: [{ value: "", label: "Auto (provider default)" }, { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" }, { value: "openai/gpt-5", label: "GPT-5" }]
     }
     return options[harness] || [{ value: "", label: "Auto (harness default)" }]
+  }
+  function loadGrokModels(raw) {
+    try {
+      var parsed = JSON.parse(raw || "{}")
+      if (parsed.models && parsed.models.length > 0) root.grokModelOptions = parsed.models
+    } catch (e) {}
   }
   readonly property var modelOptions: modelOptionsFor(root.settingsDefaultHarness)
   readonly property var room: rooms.length > 0 ? rooms[Math.min(selectedRoom, rooms.length - 1)] : null
@@ -340,6 +349,12 @@ Item {
     }
   }
 
+  Process {
+    id: modelDiscovery
+    command: [root.pluginDir + "/bin/agent-room", "models"]
+    stdout: StdioCollector { onStreamFinished: root.loadGrokModels(this.text) }
+  }
+
   Timer {
     interval: 4000
     running: window.visible
@@ -347,7 +362,10 @@ Item {
     onTriggered: root.reloadHouse()
   }
 
-  Component.onCompleted: root.runCli(["init"])
+  Component.onCompleted: {
+    root.runCli(["init"])
+    modelDiscovery.running = true
+  }
 
   FloatingWindow {
     id: window

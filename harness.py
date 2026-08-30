@@ -7,6 +7,11 @@ Hermes, …) either as a TUI in a terminal or over ACP stdio.
 from __future__ import annotations
 
 import shutil
+import json
+import os
+import re
+import tomllib
+from pathlib import Path
 from typing import Any
 
 HARNESSES: list[dict[str, Any]] = [
@@ -132,6 +137,31 @@ MODEL_OPTIONS: dict[str, list[dict[str, str]]] = {
     "gemini": [{"value": "", "label": "Auto (account default)"}, {"value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"}, {"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}],
     "opencode": [{"value": "", "label": "Auto (provider default)"}, {"value": "anthropic/claude-sonnet-4-5", "label": "Claude Sonnet 4.5"}, {"value": "openai/gpt-5", "label": "GPT-5"}],
 }
+
+def grok_model_options() -> list[dict[str, str]]:
+    """Read Grok's configured and cached models, including custom providers."""
+    found: dict[str, str] = {}
+    config = Path(os.environ.get("GROK_HOME", Path.home() / ".grok")) / "config.toml"
+    try:
+        parsed = tomllib.loads(config.read_text(encoding="utf-8"))
+        for key, spec in (parsed.get("model") or {}).items():
+            if isinstance(spec, dict):
+                found[str(spec.get("model") or key)] = str(spec.get("name") or key)
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
+    cache = config.parent / "models_cache.json"
+    try:
+        data = json.loads(cache.read_text(encoding="utf-8"))
+        for key, entry in (data.get("models") or {}).items():
+            info = entry.get("info") if isinstance(entry, dict) else {}
+            model_id = str(info.get("model") or key)
+            if model_id and not info.get("hidden", False):
+                found[model_id] = str(info.get("name") or model_id)
+    except (OSError, json.JSONDecodeError):
+        pass
+    options = [{"value": "", "label": "Auto (Grok default)"}]
+    options.extend({"value": model_id, "label": label} for model_id, label in sorted(found.items(), key=lambda item: item[1].lower()))
+    return options
 
 DEFAULT_ROLE_HARNESS = {
     "coordinator": "grok",
