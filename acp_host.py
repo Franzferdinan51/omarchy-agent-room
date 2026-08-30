@@ -111,7 +111,7 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
             "params": {
                 "protocolVersion": 1,
                 "clientInfo": {"name": "omarchy-agent-room", "version": "1.0.0"},
-                "capabilities": {"fs": {"readTextFile": True, "writeTextFile": True}},
+                "clientCapabilities": {"fs": {"readTextFile": True, "writeTextFile": True}},
             },
         },
     )

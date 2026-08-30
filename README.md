@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.6.0** — native console with model selection, team management, Telegram connector, shared MCP/ACP Mail, pairing controls, and reliable connector shutdown.
+Current release: **1.6.1** — native console with model selection, team management, Telegram connector, shared MCP/ACP Mail, pairing controls, and reliable connector shutdown.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
