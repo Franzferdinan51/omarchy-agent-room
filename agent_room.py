@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -24,7 +25,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -292,6 +293,26 @@ def derive_health(data: dict[str, Any]) -> list[dict[str, Any]]:
                     "message": work.get("title") or work["id"],
                 }
             )
+    for room in data.get("rooms") or []:
+        for role in room.get("roles") or []:
+            if role.get("status") == "error":
+                items.append(
+                    {
+                        "id": "seat-error-" + room["id"] + "-" + role.get("id", "seat"),
+                        "level": "error",
+                        "title": "Seat failed",
+                        "message": f"{room.get('name', 'Room')} · {role.get('name', role.get('id', 'seat'))}: {role.get('error') or 'unknown error'}",
+                    }
+                )
+            elif role.get("status") == "running" and not process_alive(int(role.get("pid") or 0)):
+                items.append(
+                    {
+                        "id": "seat-stale-" + room["id"] + "-" + role.get("id", "seat"),
+                        "level": "error",
+                        "title": "Seat is stale",
+                        "message": f"{room.get('name', 'Room')} · {role.get('name', role.get('id', 'seat'))} is marked running but its process is gone.",
+                    }
+                )
     claimed = {}
     for claim in data.get("claims") or []:
         path = claim.get("path")
@@ -334,6 +355,52 @@ def log_cmd(data: dict[str, Any], agent: str, cmd: str, status: str = "ok") -> N
         }
     )
     data["cmds"] = data["cmds"][-MAX_CMDS:]
+
+
+def process_alive(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def terminate_process(pid: int) -> None:
+    if not process_alive(pid):
+        return
+    try:
+        pgid = os.getpgid(pid)
+        if pgid > 1 and pgid != os.getpgrp():
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def close_seat_windows(room_id: str, role: dict[str, Any]) -> None:
+    app_ids = {
+        role.get("app_id") or f"{PLUGIN_ID}.{room_id}.{role.get('id', 'seat')}",
+        f"org.omarchy.agent-room.{role.get('id', 'seat')}",
+    }
+    try:
+        raw = subprocess.check_output(["hyprctl", "clients", "-j"], text=True, stderr=subprocess.DEVNULL)
+        clients = json.loads(raw)
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError, json.JSONDecodeError, TypeError):
+        return
+    for client in clients if isinstance(clients, list) else []:
+        if client.get("class") not in app_ids and client.get("initialClass") not in app_ids:
+            continue
+        address = client.get("address")
+        if address:
+            subprocess.run(
+                ["hyprctl", "dispatch", f'hl.dsp.window.close({{ window = "address:{address}" }})'],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
 
 def find_room(data: dict[str, Any], room_id: str) -> dict[str, Any]:
@@ -782,6 +849,7 @@ def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, 
     env["AGENT_ROOM_HARNESS"] = program
     env["AGENT_ROOM_TRANSPORT"] = transport
     env["AGENT_ROOM_MODEL"] = str(role.get("model") or settings.get("default_model") or "")
+    role["app_id"] = f"org.omarchy.agent-room.{room['id']}.{role['id']}"
     plugin = Path(__file__).resolve().parent
     cwd = room.get("cwd") or str(Path.home() / "Work")
     Path(cwd).mkdir(parents=True, exist_ok=True)
@@ -858,11 +926,8 @@ def stop_seat(house: House, room_id: str, role_id: str) -> dict[str, Any]:
         if not role:
             raise KeyError(f"seat not found: {role_id}")
         pid = int(role.get("pid") or 0)
-        if pid > 1:
-            try:
-                os.kill(pid, 15)
-            except OSError:
-                pass
+        terminate_process(pid)
+        close_seat_windows(room_id, role)
         role["status"] = "idle"
         role["pid"] = 0
         if not any(s.get("status") == "running" for s in r.get("roles") or []):
@@ -944,11 +1009,8 @@ def stop_room(house: House, room_id: str) -> dict[str, Any]:
         r["status"] = "idle"
         for role in r.get("roles") or []:
             pid = int(role.get("pid") or 0)
-            if pid > 1:
-                try:
-                    os.kill(pid, 15)
-                except OSError:
-                    pass
+            terminate_process(pid)
+            close_seat_windows(room_id, role)
             role["status"] = "idle"
             role["pid"] = 0
         log_cmd(current, "house", f"stop-room {r['name']}", "ok")

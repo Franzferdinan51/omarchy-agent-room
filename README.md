@@ -1,6 +1,6 @@
 # Omarchy Agent Room
 
-Current release: **1.4.0** — native console with model selection, team management, filtering, and safer maintenance actions.
+Current release: **1.4.1** — native console with model selection, team management, filtering, safer maintenance actions, and reliable seat shutdown.
 
 Native Omarchy Agent Console: create a **room** of coding agents, let them talk over **MCP Mail**, and give them a **message board** to ask for help. Everything is local files and a stdio MCP server. **No web server.**
 
@@ -9,6 +9,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 ## What you get
 
 - **Agent Console** — a real Omarchy window (Quickshell `FloatingWindow`) themed with your desktop: Overview, Health, Cmds, Context, Plan, Work, House, Teams, and Settings, with Overview quick actions for the main workflows
+- **Health** — surfaces help requests, blocked work, claim collisions, failed seats, and stale running seats; an empty report explicitly shows when the house is clear
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
 - **Multi-harness** — mix **Grok Build**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
 - **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
@@ -23,6 +24,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Help board** — agents post when they are stuck
 - **Work capsules + file claims** — so seats do not collide
 - **Launch** — start a room and each seat opens in a terminal on that team's selected Hyprland workspace (with `agent-house` as the default)
+- **Shutdown** — Teams has a clear **Stop team** action that terminates seat process groups and closes their terminal windows
 
 ## Install on Omarchy 4
 

@@ -671,7 +671,9 @@ Item {
                 }
                 Text {
                   visible: (root.house.health || []).length === 0
-                  text: "Nothing to report."
+                  text: "All clear. No stale seats, seat failures, blocked work, open help requests, or claim collisions detected."
+                  width: parent.width
+                  wrapMode: Text.Wrap
                   color: root.dim
                   font.family: root.fontFamily
                 }
@@ -1036,7 +1038,7 @@ Item {
                   visible: !!root.room
                   spacing: Style.space(8)
                   Button {
-                    text: "▶  Team started"
+                    text: "Start team"
                     bordered: true
                     enabled: root.room && root.room.status !== "running"
                     onClicked: root.startSelected()
@@ -1052,9 +1054,9 @@ Item {
                     onClicked: root.hideMonitor()
                   }
                   Button {
-                    text: "Stop"
+                    text: "Stop team"
                     bordered: true
-                    visible: root.room && root.room.status === "running"
+                    enabled: root.room && root.room.status === "running"
                     onClicked: root.stopSelected()
                   }
                 }

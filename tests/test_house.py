@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import subprocess
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +72,40 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(room["workspace"], "4")
         updated = self.house.mutate(lambda d: ar.update_room(d, room["id"], workspace="name:dev"))
         self.assertEqual(updated["workspace"], "name:dev")
+
+    def test_stop_room_terminates_process_group_and_closes_terminal_window(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Stop Team", "Stop every seat", str(self.dir), ["builder"], "codex")
+        )
+        self.house.mutate(
+            lambda d: ar.find_room(d, room["id"])["roles"][0].update(
+                {"status": "running", "pid": 4321, "app_id": "org.omarchy.agent-room.rm-test.builder"}
+            )
+        )
+        clients = json.dumps([{"address": "0x123", "class": "org.omarchy.agent-room.rm-test.builder"}])
+        with mock.patch.object(ar.os, "getpgid", return_value=4321) as getpgid, \
+             mock.patch.object(ar.os, "killpg") as killpg, \
+             mock.patch.object(ar.subprocess, "check_output", return_value=clients), \
+             mock.patch.object(ar.subprocess, "run") as run, \
+             mock.patch.object(ar, "omarchy_version", return_value="test"), \
+             mock.patch.object(ar, "process_alive", return_value=True):
+            ar.stop_room(self.house, room["id"])
+        getpgid.assert_called_once_with(4321)
+        killpg.assert_called_once()
+        self.assertIn(
+            mock.call(["hyprctl", "dispatch", 'hl.dsp.window.close({ window = "address:0x123" })'], check=False, stdout=mock.ANY, stderr=mock.ANY),
+            run.call_args_list,
+        )
+
+    def test_health_reports_stale_or_failed_seats(self):
+        room = {"id": "rm-health", "name": "Health", "roles": [
+            {"id": "builder", "name": "Builder", "status": "running", "pid": 999999},
+            {"id": "reviewer", "name": "Reviewer", "status": "error", "pid": 0, "error": "adapter missing"},
+        ]}
+        health = ar.derive_health({"rooms": [room], "mail": [], "work": [], "claims": [], "board": []})
+        titles = {item["title"] for item in health}
+        self.assertIn("Seat is stale", titles)
+        self.assertIn("Seat failed", titles)
 
     def test_board_and_work_and_claims(self):
         room = self.house.mutate(

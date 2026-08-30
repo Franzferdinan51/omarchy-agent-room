@@ -25,12 +25,12 @@ if command -v hyprctl >/dev/null 2>&1; then
   if [[ ! "$workspace_target" =~ ^[0-9]+$ && "$workspace_target" != name:* && "$workspace_target" != special:* ]]; then
     workspace_target="name:$workspace_target"
   fi
-  hyprctl dispatch workspace "$workspace_target" >/dev/null 2>&1 || true
+  hyprctl dispatch "hl.dsp.focus({ workspace = \"$workspace_target\" })" >/dev/null 2>&1 || true
 fi
 
-launch_tui=(omarchy-launch-tui "--app-id=org.omarchy.agent-room.${ROLE}")
+launch_tui=(omarchy-launch-tui "--app-id=org.omarchy.agent-room.${ROOM_ID}.${ROLE}")
 if ! command -v omarchy-launch-tui >/dev/null 2>&1; then
-  launch_tui=(xdg-terminal-exec --app-id="org.omarchy.agent-room.${ROLE}" -e)
+  launch_tui=(xdg-terminal-exec --app-id="org.omarchy.agent-room.${ROOM_ID}.${ROLE}" -e)
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
