@@ -101,6 +101,27 @@ class HouseTests(unittest.TestCase):
         events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
         self.assertTrue(any(event.get("payload", {}).get("id") == 4 for event in events))
 
+    def test_acp_host_answers_permission_requests(self):
+        fake = self.dir / "permission_acp.py"
+        fake.write_text(
+            "import json, sys\n"
+            "for line in sys.stdin:\n"
+            "    msg = json.loads(line)\n"
+            "    if msg.get('id') == 1: print(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':1}}), flush=True)\n"
+            "    elif msg.get('id') == 2: print(json.dumps({'jsonrpc':'2.0','id':2,'result':{'sessionId':'permission-session'}}), flush=True)\n"
+            "    elif msg.get('id') == 3:\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':'permission-request','method':'session/request_permission','params':{'options':[{'optionId':'allow-once','kind':'allow_once'}]}}), flush=True)\n"
+            "        response = json.loads(sys.stdin.readline())\n"
+            "        assert response['result']['outcome']['optionId'] == 'allow-once'\n"
+            "        print(json.dumps({'jsonrpc':'2.0','id':3,'result':{'stopReason':'end_turn'}}), flush=True); break\n",
+            encoding="utf-8",
+        )
+        log = self.dir / "permission-acp.jsonl"
+        with mock.patch.object(acp_host.hx, "acp_argv", return_value=[sys.executable, str(fake)]):
+            result = acp_host.run_seat("fake", str(self.dir), "hello", log, os.environ.copy())
+        self.assertEqual(result, 0)
+        self.assertIn("allow-once", log.read_text(encoding="utf-8"))
+
     def test_room_names_must_be_unique_and_slug_safe(self):
         first = self.house.mutate(
             lambda d: ar.create_room(d, "Build Team", "Ship it", str(self.dir), ["builder"], "codex")
@@ -219,7 +240,16 @@ class HouseTests(unittest.TestCase):
         proc = subprocess.Popen(
             [str(ROOT / "bin/agent-room"), "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
-        self.addCleanup(proc.kill)
+
+        def close_mcp():
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=3)
+            for stream in (proc.stdin, proc.stdout):
+                if stream:
+                    stream.close()
+
+        self.addCleanup(close_mcp)
 
         def call(request):
             body = json.dumps(request).encode()
@@ -240,6 +270,8 @@ class HouseTests(unittest.TestCase):
         self.assertTrue(any(tool["name"] == "send_mail" for tool in listed["result"]["tools"]))
         tool_names = {tool["name"] for tool in listed["result"]["tools"]}
         self.assertTrue({"room_update", "room_delete"}.issubset(tool_names))
+        status = call({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "house_status", "arguments": {}}})
+        self.assertFalse(status.get("result", {}).get("isError", False))
 
     def test_edit_team_goal_and_delete_team(self):
         room = self.house.mutate(lambda d: ar.create_room(d, "Draft", "Old goal", str(self.dir), ["builder"], "codex"))

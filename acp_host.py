@@ -37,6 +37,29 @@ def _send(proc: subprocess.Popen, msg: dict[str, Any]) -> None:
     proc.stdin.flush()
 
 
+def _handle_server_request(proc: subprocess.Popen, msg: dict[str, Any], log_path: Path) -> bool:
+    """Answer ACP server requests that would otherwise leave a seat waiting."""
+    if msg.get("method") != "session/request_permission" or "id" not in msg:
+        return False
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    options = params.get("options") if isinstance(params.get("options"), list) else []
+    selected = next(
+        (
+            option for option in options
+            if isinstance(option, dict) and "allow" in str(option.get("kind", "")).lower()
+        ),
+        None,
+    )
+    if selected and selected.get("optionId"):
+        result = {"outcome": {"outcome": "selected", "optionId": selected["optionId"]}}
+    else:
+        result = {"outcome": {"outcome": "cancelled"}}
+    response = {"jsonrpc": "2.0", "id": msg["id"], "result": result}
+    _log(log_path, {"type": "rpc", "dir": "out", "method": msg.get("method"), "id": msg.get("id"), "payload": response})
+    _send(proc, response)
+    return True
+
+
 def _close_proc(proc: subprocess.Popen) -> None:
     if proc.poll() is None:
         try:
@@ -157,6 +180,8 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
         if msg is None:
             break
         _log(log_path, {"type": "rpc", "dir": "in", "payload": msg})
+        if _handle_server_request(proc, msg, log_path):
+            continue
         if msg.get("id") == session_id_request and "result" in msg:
             session = msg["result"]
             break
@@ -196,6 +221,8 @@ def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[s
             continue
         idle_rounds = 0
         _log(log_path, {"type": "rpc", "dir": "in", "payload": msg})
+        if _handle_server_request(proc, msg, log_path):
+            continue
         if msg.get("id") == prompt_id:
             break
     _log(log_path, {"type": "done", "returncode": proc.poll()})
