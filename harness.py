@@ -124,6 +124,15 @@ HARNESSES: list[dict[str, Any]] = [
 
 BY_ID = {h["id"]: h for h in HARNESSES}
 
+MODEL_OPTIONS: dict[str, list[dict[str, str]]] = {
+    "grok": [{"value": "", "label": "Auto (account default)"}, {"value": "grok-4.1", "label": "Grok 4.1"}, {"value": "grok-4.1-mini", "label": "Grok 4.1 Mini"}],
+    "codex": [{"value": "", "label": "Auto (account default)"}, {"value": "gpt-5.2-codex", "label": "GPT-5.2 Codex"}, {"value": "gpt-5.1-codex-mini", "label": "GPT-5.1 Codex Mini"}],
+    "claude": [{"value": "", "label": "Auto (account default)"}, {"value": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5"}, {"value": "claude-opus-4-1", "label": "Claude Opus 4.1"}],
+    "hermes": [{"value": "", "label": "Config default"}, {"value": "qwen3-coder", "label": "Qwen3 Coder"}, {"value": "deepseek-v3", "label": "DeepSeek V3"}],
+    "gemini": [{"value": "", "label": "Auto (account default)"}, {"value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"}, {"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}],
+    "opencode": [{"value": "", "label": "Auto (provider default)"}, {"value": "anthropic/claude-sonnet-4-5", "label": "Claude Sonnet 4.5"}, {"value": "openai/gpt-5", "label": "GPT-5"}],
+}
+
 DEFAULT_ROLE_HARNESS = {
     "coordinator": "grok",
     "builder": "codex",
@@ -192,12 +201,14 @@ def detect() -> list[dict[str, Any]]:
     return [get(h["id"]) for h in HARNESSES]
 
 
-def launch_argv(harness_id: str, prompt: str, unattended: bool = True) -> list[str]:
+def launch_argv(harness_id: str, prompt: str, unattended: bool = True, model: str = "") -> list[str]:
     spec = get(harness_id)
     style = spec.get("prompt_style") or "dashdash"
     argv = list(spec.get("argv") or [spec["bin"]])
     if not unattended:
         argv = [spec["bin"]]
+    if model:
+        argv += ["--model", model]
     if style == "pi":
         return argv + [prompt]
     if style == "crush":
@@ -228,6 +239,7 @@ def default_settings() -> dict[str, Any]:
     return {
         "workspace": "agent-house",
         "default_harness": "grok",
+        "default_model": "",
         "mixed_harness": True,
         "default_transport": "tui",
         "role_harness": dict(DEFAULT_ROLE_HARNESS),

@@ -24,7 +24,7 @@ from typing import Any
 import connectors
 import harness as hx
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 PLUGIN_ID = "io.github.franzferdinan51.agent-room"
 STATE_DIR = Path.home() / ".local/state/omarchy/agent-room"
 HOUSE_PATH = STATE_DIR / "house.json"
@@ -373,6 +373,7 @@ def create_room(
     if not role_ids:
         role_ids = list(DEFAULT_ROLES)
     program = program or settings.get("default_harness") or default_program()
+    default_model = str(settings.get("default_model") or "")
     cwd = os.path.expanduser(cwd or str(Path.home() / "Work"))
     built = []
     for rid in role_ids:
@@ -381,12 +382,14 @@ def create_room(
             seat = {}
         hid = hx.resolve_seat_harness(settings, rid, seat.get("harness") or seat.get("program") or program)
         transport = hx.resolve_transport(settings, rid, seat.get("transport"))
+        model = str(seat.get("model") or (settings.get("role_model") or {}).get(rid) or default_model)
         built.append(
             {
                 "id": rid,
                 "name": rid.replace("-", " ").title(),
                 "program": hid,
                 "harness": hid,
+                "model": model,
                 "transport": transport,
                 "status": "idle",
                 "pid": 0,
@@ -715,6 +718,7 @@ def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, 
     env["AGENT_ROOM_CWD"] = room.get("cwd") or str(Path.home() / "Work")
     env["AGENT_ROOM_HARNESS"] = program
     env["AGENT_ROOM_TRANSPORT"] = transport
+    env["AGENT_ROOM_MODEL"] = str(role.get("model") or settings.get("default_model") or "")
     plugin = Path(__file__).resolve().parent
     cwd = room.get("cwd") or str(Path.home() / "Work")
     Path(cwd).mkdir(parents=True, exist_ok=True)
@@ -846,6 +850,29 @@ def apply_settings(house: House, patch: dict[str, Any]) -> dict[str, Any]:
         return current["settings"]
 
     return house.mutate(_apply)
+
+
+def clear_messages(house: House) -> dict[str, Any]:
+    def _clear(current: dict[str, Any]) -> dict[str, Any]:
+        count = len(current.get("mail") or []) + len(current.get("board") or [])
+        current["mail"] = []
+        current["board"] = []
+        current["health"] = []
+        log_cmd(current, "operator", "clear-messages", "ok")
+        return {"cleared": count}
+    return house.mutate(_clear)
+
+
+def reset_house(house: House) -> dict[str, Any]:
+    def _reset(current: dict[str, Any]) -> dict[str, Any]:
+        settings = current.get("settings")
+        fresh = empty_house()
+        current.clear()
+        current.update(fresh)
+        if isinstance(settings, dict):
+            current["settings"] = settings
+        return current
+    return house.mutate(_reset)
 
 
 def stop_room(house: House, room_id: str) -> dict[str, Any]:
@@ -1485,6 +1512,7 @@ def cli(argv: list[str] | None = None) -> int:
     p_create.add_argument("--roles", default=",".join(DEFAULT_ROLES))
     p_create.add_argument("--program", default="")
     p_create.add_argument("--harness", default="")
+    p_create.add_argument("--model", default="")
     p_create.add_argument(
         "--seat",
         action="append",
@@ -1527,6 +1555,8 @@ def cli(argv: list[str] | None = None) -> int:
 
     p_review = sub.add_parser("review")
     p_review.add_argument("--room", default="")
+    sub.add_parser("clear-messages", help="Clear all MCP Mail and help-board messages")
+    sub.add_parser("reset-house", help="Reset rooms, messages, work, and claims while keeping settings")
 
     sub.add_parser("harnesses", help="List harnesses and ACP adapters")
     sub.add_parser("hermes", help="Hermes Agent status")
@@ -1534,10 +1564,12 @@ def cli(argv: list[str] | None = None) -> int:
     p_set = sub.add_parser("set-settings")
     p_set.add_argument("--json", dest="patch_json", default="")
     p_set.add_argument("--default-harness", default="")
+    p_set.add_argument("--default-model", default="")
     p_set.add_argument("--default-transport", choices=["", "tui", "acp"], default="")
     p_set.add_argument("--workspace", default="")
     p_set.add_argument("--mixed", choices=["", "true", "false"], default="")
     p_set.add_argument("--role-harness", action="append", default=[], help="role=harness")
+    p_set.add_argument("--role-model", action="append", default=[], help="role=model")
     p_set.add_argument("--acp", choices=["", "true", "false"], default="")
     p_set.add_argument("--hermes", choices=["", "true", "false"], default="")
 
@@ -1577,6 +1609,9 @@ def cli(argv: list[str] | None = None) -> int:
             rid, rest = spec.split("=", 1)
             harness_id, _, transport = rest.partition(":")
             seats[rid.strip()] = {"harness": harness_id.strip(), "transport": transport.strip() or None}
+        if args.model:
+            for rid in roles:
+                seats.setdefault(rid, {})["model"] = args.model
         room = house.mutate(
             lambda d: create_room(
                 d,
@@ -1623,12 +1658,20 @@ def cli(argv: list[str] | None = None) -> int:
     if args.cmd == "hermes":
         print_json(connectors.hermes_status())
         return 0
+    if args.cmd == "clear-messages":
+        print_json(clear_messages(house))
+        return 0
+    if args.cmd == "reset-house":
+        print_json(reset_house(house))
+        return 0
     if args.cmd == "set-settings":
         patch: dict[str, Any] = {}
         if args.patch_json:
             patch.update(json.loads(args.patch_json))
         if args.default_harness:
             patch["default_harness"] = args.default_harness
+        if args.default_model:
+            patch["default_model"] = args.default_model
         if args.default_transport:
             patch["default_transport"] = args.default_transport
         if args.workspace:
@@ -1646,6 +1689,13 @@ def cli(argv: list[str] | None = None) -> int:
                     k, v = spec.split("=", 1)
                     rh[k.strip()] = v.strip()
             patch["role_harness"] = rh
+        if args.role_model:
+            rm = {}
+            for spec in args.role_model:
+                if "=" in spec:
+                    k, v = spec.split("=", 1)
+                    rm[k.strip()] = v.strip()
+            patch["role_model"] = rm
         print_json(apply_settings(house, patch))
         return 0
     if args.cmd == "set-seat":
@@ -1667,7 +1717,7 @@ def cli(argv: list[str] | None = None) -> int:
         print_json(stop_seat(house, args.room_id, args.role_id))
         return 0
     if args.cmd == "exec-seat":
-        argv = hx.launch_argv(args.harness, args.prompt, unattended=True)
+        argv = hx.launch_argv(args.harness, args.prompt, unattended=True, model=os.environ.get("AGENT_ROOM_MODEL", ""))
         os.execvp(argv[0], argv)
     if args.cmd == "set-monitor":
         hidden = args.hidden == "true"

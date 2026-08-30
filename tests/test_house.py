@@ -78,6 +78,17 @@ class HouseTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.house.mutate(lambda d: ar.find_room(d, "nope"))
 
+    def test_model_setting_and_message_reset(self):
+        ar.apply_settings(self.house, {"default_harness": "codex", "default_model": "gpt-5.2-codex"})
+        room = self.house.mutate(lambda d: ar.create_room(d, "Models", "Test model selection", str(self.dir), ["builder"], None))
+        self.assertEqual(room["roles"][0]["model"], "gpt-5.2-codex")
+        self.house.mutate(lambda d: ar.send_mail(d, room["id"], "Builder", ["*"], "hi", "hello"))
+        self.assertEqual(ar.clear_messages(self.house)["cleared"], 1)
+        self.assertEqual(self.house.snapshot()["mail"], [])
+        ar.reset_house(self.house)
+        self.assertEqual(self.house.snapshot()["rooms"], [])
+        self.assertEqual(self.house.snapshot()["settings"]["default_model"], "gpt-5.2-codex")
+
     def test_mixed_harness_and_acp_seats(self):
         room = self.house.mutate(
             lambda d: ar.create_room(

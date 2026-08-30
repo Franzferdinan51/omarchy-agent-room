@@ -37,6 +37,7 @@ Item {
   property string composeText: ""
   property bool startAfterCreate: false
   property string settingsDefaultHarness: "grok"
+  property string settingsDefaultModel: ""
   property string settingsDefaultTransport: "tui"
   property bool settingsMixed: true
   property bool settingsAcp: true
@@ -110,6 +111,18 @@ Item {
     { value: "tui", label: "TUI terminal" },
     { value: "acp", label: "ACP stdio" }
   ]
+  function modelOptionsFor(harness) {
+    var options = {
+      grok: [{ value: "", label: "Auto (account default)" }, { value: "grok-4.1", label: "Grok 4.1" }, { value: "grok-4.1-mini", label: "Grok 4.1 Mini" }],
+      codex: [{ value: "", label: "Auto (account default)" }, { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" }, { value: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini" }],
+      claude: [{ value: "", label: "Auto (account default)" }, { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" }, { value: "claude-opus-4-1", label: "Claude Opus 4.1" }],
+      hermes: [{ value: "", label: "Config default" }, { value: "qwen3-coder", label: "Qwen3 Coder" }, { value: "deepseek-v3", label: "DeepSeek V3" }],
+      gemini: [{ value: "", label: "Auto (account default)" }, { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" }, { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" }],
+      opencode: [{ value: "", label: "Auto (provider default)" }, { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" }, { value: "openai/gpt-5", label: "GPT-5" }]
+    }
+    return options[harness] || [{ value: "", label: "Auto (harness default)" }]
+  }
+  readonly property var modelOptions: modelOptionsFor(root.settingsDefaultHarness)
   readonly property var room: rooms.length > 0 ? rooms[Math.min(selectedRoom, rooms.length - 1)] : null
   readonly property var roomMail: {
     var out = []
@@ -175,6 +188,7 @@ Item {
       if (root.settingsHydrated) return
       root.settingsHydrated = true
       if (s.default_harness) settingsDefaultHarness = s.default_harness
+      if (s.default_model !== undefined) settingsDefaultModel = s.default_model
       if (s.default_transport) settingsDefaultTransport = s.default_transport
       if (s.workspace) settingsWorkspace = s.workspace
       if (s.mixed_harness !== undefined) settingsMixed = !!s.mixed_harness
@@ -229,6 +243,7 @@ Item {
   function saveSettings() {
     var patch = {
       default_harness: settingsDefaultHarness,
+      default_model: settingsDefaultModel,
       default_transport: settingsDefaultTransport,
       mixed_harness: settingsMixed,
       acp_enabled: settingsAcp,
@@ -1071,6 +1086,7 @@ Item {
                   text: "A room can mix Grok Build, Codex, Claude Code, Hermes, and the rest. TUI opens a terminal. ACP talks Agent Client Protocol over stdio — including `grok agent stdio` and `hermes acp`."
                 }
                 Dropdown { width: parent.width; label: "Default harness"; value: root.settingsDefaultHarness; options: root.harnessOptions; onChanged: function(v) { root.settingsDefaultHarness = v } }
+                Dropdown { width: parent.width; label: "Default model"; value: root.settingsDefaultModel; options: root.modelOptions; onChanged: function(v) { root.settingsDefaultModel = v } }
                 Dropdown { width: parent.width; label: "Default transport"; value: root.settingsDefaultTransport; options: root.transportOptions; onChanged: function(v) { root.settingsDefaultTransport = v } }
                 Toggle { width: parent.width; label: "Mixed harness rooms"; description: "Allow each seat its own CLI"; checked: root.settingsMixed; onClicked: root.settingsMixed = !root.settingsMixed }
                 Toggle { width: parent.width; label: "ACP enabled"; description: "Spawn seats with Agent Client Protocol adapters"; checked: root.settingsAcp; onClicked: root.settingsAcp = !root.settingsAcp }
@@ -1082,6 +1098,12 @@ Item {
                   onTextChanged: root.settingsWorkspace = text
                 }
                 Button { text: "Save settings"; bordered: true; onClicked: root.saveSettings() }
+                Text { text: "DANGER ZONE"; color: root.urgent; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; topPadding: Style.space(10) }
+                Text { width: parent.width; wrapMode: Text.Wrap; text: "Clear messages removes MCP Mail and help-board posts. Reset house removes rooms, work, and claims but keeps these settings."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+                Row { spacing: Style.space(8)
+                  Button { text: "Clear all messages"; bordered: true; onClicked: root.runCli(["clear-messages"]) }
+                  Button { text: "Reset house"; bordered: true; onClicked: root.runCli(["reset-house"]) }
+                }
 
                 PanelSectionHeader { text: "HERMES CONNECTION"; foreground: root.foreground }
                 Text {
