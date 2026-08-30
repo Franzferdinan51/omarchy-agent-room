@@ -7,6 +7,8 @@ import qs.Ui
 
 Item {
   id: root
+  width: 980
+  height: 860
 
   property var shell: null
   property var manifest: null
