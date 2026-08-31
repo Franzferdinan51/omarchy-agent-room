@@ -550,10 +550,7 @@ Item {
 
     FocusScope {
       id: focusScope
-      width: 980
-      height: 860
-      implicitWidth: 980
-      implicitHeight: 860
+      anchors.fill: parent
       focus: true
 
       PanelKeyCatcher {
@@ -569,7 +566,7 @@ Item {
           anchors.margins: Style.space(18)
           spacing: Style.space(14)
 
-          Row {
+          Flow {
             width: parent.width
             spacing: Style.space(12)
 
@@ -599,10 +596,6 @@ Item {
                 font.pixelSize: Style.font.caption
               }
             }
-
-            // Keep actions reachable on the compact panel width; a large
-            // fixed spacer used to push the Settings action off-screen.
-            Item { width: 1; height: 1 }
 
             Button {
               text: "SETTINGS"
@@ -1548,7 +1541,7 @@ Item {
     return parts.join("   ")
   }
 
-  component StatsRow: Row {
+  component StatsRow: Flow {
     id: statsRow
     property var items: []
     spacing: Style.space(10)
@@ -1556,7 +1549,9 @@ Item {
       model: statsRow.items
       delegate: Rectangle {
         required property var modelData
-        width: Math.max(160, (statsRow.width - 20) / Math.max(1, statsRow.items.length))
+        // Flow keeps the cards usable when the window becomes narrow instead
+        // of forcing a row wider than the viewport.
+        width: Math.max(120, Math.min(280, (statsRow.width - Style.space(20)) / Math.max(1, statsRow.items.length)))
         implicitHeight: 86
         color: root.card
         border.width: 1
