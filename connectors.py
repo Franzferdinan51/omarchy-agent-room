@@ -229,9 +229,10 @@ def hermes_status() -> dict[str, Any]:
 
 
 def acp_catalog() -> list[dict[str, Any]]:
+    """Return the detected ACP adapters with their actual launch commands."""
     rows = []
     for spec in hx.detect():
-        acp = spec.get("command")
+        acp = spec.get("acp")
         rows.append(
             {
                 "id": spec["id"],

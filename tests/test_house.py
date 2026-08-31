@@ -170,6 +170,16 @@ class HouseTests(unittest.TestCase):
         updated = ar.set_seat(self.house, room["id"], "builder", model="ornith-1.5-35b-a3b")
         self.assertEqual(updated["model"], "ornith-1.5-35b-a3b")
 
+    def test_acp_catalog_exposes_adapter_commands(self):
+        fake_specs = [
+            {"id": "codex", "label": "Codex", "installed": True, "acp_ready": True, "acp": ["npx", "-y", "codex-acp"]},
+            {"id": "grok", "label": "Grok Build", "installed": False, "acp_ready": False, "acp": None},
+        ]
+        with mock.patch.object(connectors.hx, "detect", return_value=fake_specs):
+            catalog = connectors.acp_catalog()
+        self.assertEqual(catalog[0]["acp_command"], "npx -y codex-acp")
+        self.assertEqual(catalog[1]["acp_command"], "")
+
     def test_model_catalog_includes_lm_studio_entries(self):
         options = harness.grok_model_options()
         values = {item["value"] for item in options}
