@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import subprocess
+import time
 from unittest import mock
 from pathlib import Path
 
@@ -242,6 +243,43 @@ class HouseTests(unittest.TestCase):
             mock.call(["hyprctl", "dispatch", 'hl.dsp.window.close({ window = "address:0x123" })'], check=False, stdout=mock.ANY, stderr=mock.ANY),
             run.call_args_list,
         )
+
+    def test_reset_house_stops_seats_before_clearing_them(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Reset Team", "Reset safely", str(self.dir), ["builder"], "codex")
+        )
+        self.house.mutate(
+            lambda d: ar.find_room(d, room["id"])["roles"][0].update({"status": "running", "pid": 4321})
+        )
+        with mock.patch.object(ar, "terminate_process") as terminate, mock.patch.object(ar, "close_seat_windows") as close:
+            ar.reset_house(self.house)
+        terminate.assert_called_once_with(4321)
+        close.assert_called_once()
+        self.assertEqual(self.house.load()["rooms"], [])
+
+    def test_start_room_restarts_stale_running_seat(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Stale Team", "Restart stale", str(self.dir), ["builder"], "codex")
+        )
+        self.house.mutate(
+            lambda d: ar.find_room(d, room["id"])["roles"][0].update({"status": "running", "pid": 9999})
+        )
+        with mock.patch.object(ar, "process_alive", return_value=False), mock.patch.object(ar, "_spawn_seat") as spawn:
+            ar.start_room(self.house, room["id"])
+        spawn.assert_called_once()
+
+    def test_claims_enforce_ttl_collision_and_ownership(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Claims", "Protect files", str(self.dir), ["builder"], "codex")
+        )
+        claim = self.house.mutate(lambda d: ar.claim_paths(d, room["id"], "Builder", ["src/app.py"], ttl=60))[0]
+        with self.assertRaisesRegex(ValueError, "already claimed"):
+            self.house.mutate(lambda d: ar.claim_paths(d, room["id"], "Reviewer", ["src/app.py"]))
+        with self.assertRaises(PermissionError):
+            self.house.mutate(lambda d: ar.release_claim(d, claim["id"], "Reviewer"))
+        with mock.patch.object(ar.time, "time", return_value=time.time() + 61):
+            replacement = self.house.mutate(lambda d: ar.claim_paths(d, room["id"], "Reviewer", ["src/app.py"]))
+        self.assertEqual(replacement[0]["agent"], "Reviewer")
 
     def test_health_reports_stale_or_failed_seats(self):
         room = {"id": "rm-health", "name": "Health", "roles": [

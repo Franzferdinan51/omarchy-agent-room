@@ -42,6 +42,7 @@ Item {
   property string formTJudge: "acp"
   property string formTCreative: "tui"
   property string lastError: ""
+  property bool houseLoaded: false
   property string composeText: ""
   property string contextDraft: ""
   property string planDraft: ""
@@ -212,7 +213,7 @@ Item {
     var n = 0
     var roles = room.roles || []
     for (var i = 0; i < roles.length; i++)
-      if (roles[i].status === "complete") n++
+      if (roles[i].status === "completed" || roles[i].status === "complete") n++
     return n
   }
 
@@ -247,6 +248,7 @@ Item {
   function parseHouse(raw) {
     try {
       house = JSON.parse(raw || "{}")
+      houseLoaded = true
       lastError = ""
       var selectedIndex = -1
       for (var i = 0; i < root.rooms.length; i++) {
@@ -289,6 +291,7 @@ Item {
       if (rt.judge) formTJudge = rt.judge
       if (rt["creative-director"]) formTCreative = rt["creative-director"]
     } catch (e) {
+      houseLoaded = true
       lastError = "Could not read house state"
     }
   }
@@ -480,7 +483,7 @@ Item {
     watchChanges: true
     printErrors: false
     onLoaded: root.parseHouse(text())
-    onLoadFailed: root.runCli(["init"])
+    onLoadFailed: { root.lastError = "House state is unavailable; retrying…"; root.runCli(["init"]) }
     onFileChanged: reload()
   }
 
@@ -658,6 +661,15 @@ Item {
             Column {
               width: scrollArea.availableWidth
               spacing: Style.space(16)
+
+              Text {
+                visible: !root.houseLoaded
+                width: parent.width
+                text: "Loading Agent House…"
+                color: root.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
 
               // ---------- OVERVIEW ----------
               Column {
@@ -1146,8 +1158,9 @@ Item {
                   statusColor: root.room && root.room.status === "running" ? root.accent : root.dim
                 }
 
-                Row {
+                Flow {
                   visible: !!root.room
+                  width: parent.width
                   spacing: Style.space(8)
                   Button {
                     text: "Start team"
@@ -1187,16 +1200,18 @@ Item {
                   delegate: Rectangle {
                     required property var modelData
                     width: parent.width
-                    implicitHeight: 92
+                    implicitHeight: seatColumn.implicitHeight + Style.space(24)
                     color: root.card
                     border.width: 1
                     border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-                    Row {
-                      anchors.fill: parent
-                      anchors.margins: Style.space(12)
-                      spacing: Style.space(10)
+                    Column {
+                      id: seatColumn
+                      x: Style.space(12)
+                      y: Style.space(12)
+                      width: parent.width - Style.space(24)
+                      spacing: Style.space(8)
                       Column {
-                        width: 180
+                        width: parent.width
                         spacing: 2
                         Text {
                           text: modelData.name || modelData.id
@@ -1212,45 +1227,47 @@ Item {
                         }
                       }
                       Dropdown {
-                        width: 190
+                        width: parent.width
                         label: "Model"
                         value: modelData.model || root.settingsDefaultModel
                         options: root.modelOptionsFor(modelData.harness || modelData.program || root.settingsDefaultHarness)
                         onChanged: function(v) { root.setSeatModel(modelData.id, v) }
                       }
-                      Button {
-                        text: modelData.status === "running" ? "Stop" : "Start"
-                        bordered: true
-                        onClicked: {
-                          if (!root.room) return
-                          root.runCli([modelData.status === "running" ? "stop-seat" : "start-seat", root.room.id, modelData.id])
+                      Flow {
+                        width: parent.width
+                        spacing: Style.space(8)
+                        Button {
+                          text: modelData.status === "running" ? "Stop" : "Start"
+                          bordered: true
+                          onClicked: {
+                            if (!root.room) return
+                            root.runCli([modelData.status === "running" ? "stop-seat" : "start-seat", root.room.id, modelData.id])
+                          }
                         }
-                      }
-                      Button {
-                        text: "Grok"
-                        bordered: true
-                        selected: (modelData.harness || modelData.program) === "grok"
-                        onClicked: root.switchSeat(modelData.id, "grok", modelData.transport || "tui")
-                      }
-                      Button {
-                        text: "Codex"
-                        bordered: true
-                        selected: (modelData.harness || modelData.program) === "codex"
-                        onClicked: root.switchSeat(modelData.id, "codex", modelData.transport || "tui")
-                      }
-                      Button {
-                        text: "Hermes"
-                        bordered: true
-                        selected: (modelData.harness || modelData.program) === "hermes"
-                        onClicked: root.switchSeat(modelData.id, "hermes", modelData.transport || "tui")
-                      }
-                      Button {
-                        text: (modelData.transport === "acp") ? "Use TUI" : "Use ACP"
-                        bordered: true
-                        onClicked: root.switchSeat(modelData.id, modelData.harness || modelData.program, modelData.transport === "acp" ? "tui" : "acp")
+                        Button { text: "Grok"; bordered: true; selected: (modelData.harness || modelData.program) === "grok"; onClicked: root.switchSeat(modelData.id, "grok", modelData.transport || "tui") }
+                        Button { text: "Codex"; bordered: true; selected: (modelData.harness || modelData.program) === "codex"; onClicked: root.switchSeat(modelData.id, "codex", modelData.transport || "tui") }
+                        Button { text: "Hermes"; bordered: true; selected: (modelData.harness || modelData.program) === "hermes"; onClicked: root.switchSeat(modelData.id, "hermes", modelData.transport || "tui") }
+                        Button { text: (modelData.transport === "acp") ? "Use TUI" : "Use ACP"; bordered: true; onClicked: root.switchSeat(modelData.id, modelData.harness || modelData.program, modelData.transport === "acp" ? "tui" : "acp") }
                       }
                     }
                   }
+                }
+
+                Text {
+                  visible: !!root.room && (root.room.roles || []).length === 0
+                  width: parent.width
+                  text: "This team has no seats yet. Edit the team from House to add one."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  wrapMode: Text.Wrap
+                }
+                Text {
+                  visible: !root.room && root.rooms.length === 0
+                  width: parent.width
+                  text: "No teams yet. Open House to create your first team."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  wrapMode: Text.Wrap
                 }
 
                 Text {

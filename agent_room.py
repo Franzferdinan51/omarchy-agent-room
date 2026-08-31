@@ -214,6 +214,7 @@ class House:
 
 def decorate_house(data: dict[str, Any]) -> dict[str, Any]:
     """Fill stats/meta/health so the console FileView does not need a second snapshot."""
+    purge_expired_claims(data)
     rooms = data.get("rooms") or []
     mail = data.get("mail") or []
     work = data.get("work") or []
@@ -374,6 +375,23 @@ def process_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def claim_expired(claim: dict[str, Any], now: float | None = None) -> bool:
+    """Return whether a claim's lease has elapsed (malformed dates are expired)."""
+    try:
+        created = datetime.fromisoformat(str(claim.get("created_at", "")).replace("Z", "+00:00"))
+        ttl = int(claim.get("ttl", 0))
+        return created.timestamp() + ttl <= (time.time() if now is None else now)
+    except (TypeError, ValueError, OverflowError):
+        return True
+
+
+def purge_expired_claims(data: dict[str, Any], now: float | None = None) -> int:
+    claims = data.get("claims") or []
+    kept = [claim for claim in claims if not claim_expired(claim, now)]
+    data["claims"] = kept
+    return len(claims) - len(kept)
 
 
 def terminate_process(pid: int) -> None:
@@ -850,11 +868,25 @@ def claim_paths(
     ttl: int = 3600,
 ) -> list[dict[str, Any]]:
     room = find_room(data, room_id)
+    if int(ttl) <= 0:
+        raise ValueError("claim ttl must be positive")
+    purge_expired_claims(data)
     made = []
     for path in paths:
         path = path.strip()
         if not path:
             continue
+        existing = [
+            claim for claim in data.get("claims") or []
+            if claim.get("room_id") == room["id"] and claim.get("path") == path
+        ]
+        conflict = next(
+            (claim for claim in existing if claim.get("exclusive") or exclusive), None
+        )
+        if conflict:
+            if str(conflict.get("agent", "")).casefold() == str(agent).casefold():
+                continue
+            raise ValueError(f"path already claimed: {path} ({conflict.get('agent', '?')})")
         claim = {
             "id": nid("cl-"),
             "room_id": room["id"],
@@ -883,6 +915,8 @@ def release_claim(data: dict[str, Any], claim_id: str, agent: str) -> dict[str, 
         kept.append(claim)
     if not found:
         raise KeyError(f"claim not found: {claim_id}")
+    if str(found.get("agent", "")).casefold() != str(agent).casefold():
+        raise PermissionError("only the claim owner can release this claim")
     data["claims"] = kept
     log_cmd(data, agent, f"release-claim {claim_id}", "ok")
     return found
@@ -1072,8 +1106,11 @@ def start_room(house: House, room_id: str) -> dict[str, Any]:
         settings = hx.merge_settings(current.get("settings") if isinstance(current.get("settings"), dict) else None)
         r["status"] = "running"
         for role in r.get("roles") or []:
-            if role.get("status") == "running" and role.get("pid"):
+            if role.get("status") == "running" and process_alive(int(role.get("pid") or 0)):
                 continue
+            if role.get("status") == "running":
+                role["status"] = "idle"
+                role["pid"] = 0
             _spawn_seat(r, role, settings)
         log_cmd(current, "house", f"start-room {r['name']}", "ok")
         return r
@@ -1175,6 +1212,10 @@ def clear_messages(house: House) -> dict[str, Any]:
 def reset_house(house: House) -> dict[str, Any]:
     def _reset(current: dict[str, Any]) -> dict[str, Any]:
         settings = current.get("settings")
+        for room in current.get("rooms") or []:
+            for role in room.get("roles") or []:
+                terminate_process(int(role.get("pid") or 0))
+                close_seat_windows(room["id"], role)
         fresh = empty_house()
         current.clear()
         current.update(fresh)
@@ -2290,6 +2331,6 @@ if __name__ == "__main__":
         raise SystemExit(cli())
     except BrokenPipeError:
         raise SystemExit(0)
-    except (KeyError, ValueError) as exc:
+    except (KeyError, ValueError, OSError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2)
