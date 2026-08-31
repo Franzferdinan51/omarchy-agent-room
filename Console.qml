@@ -7,6 +7,8 @@ import qs.Ui
 
 Item {
   id: root
+  width: 980
+  height: 860
 
   property var shell: null
   property var manifest: null
@@ -548,7 +550,10 @@ Item {
 
     FocusScope {
       id: focusScope
-      anchors.fill: parent
+      width: 980
+      height: 860
+      implicitWidth: 980
+      implicitHeight: 860
       focus: true
 
       PanelKeyCatcher {
@@ -609,6 +614,7 @@ Item {
 
           Flow {
             width: parent.width
+            height: 40
             spacing: Style.space(8)
             Repeater {
               model: [
@@ -624,6 +630,7 @@ Item {
               ]
               delegate: Button {
                 required property var modelData
+                height: 36
                 text: modelData.count !== undefined && modelData.count !== null
                   ? (modelData.label + "  " + modelData.count)
                   : modelData.label
@@ -923,7 +930,22 @@ Item {
                     width: parent.width
                     spacing: Style.space(6)
                     Capsule { width: parent.width; title: modelData.title || ""; body: modelData.brief || ""; nextLine: modelData.next || ""; footer: (modelData.cwd || "") + "    " + (modelData.files || 0) + " FILES  ·  " + (modelData.claims || 0) + " CLAIMS"; statusText: ((modelData.status || "") + "  ·  " + (modelData.owner || "")).toUpperCase(); statusColor: modelData.status === "active" ? root.accent : root.dim }
-                    Flow { width: parent.width; spacing: Style.space(8); Button { text: "Claim"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["claim-work", modelData.id, "--agent", "operator"]) }; Button { text: "Complete"; bordered: true; enabled: modelData.status !== "completed"; onClicked: root.runCli(["complete-work", modelData.id, "--agent", "operator"]) } }
+                    Flow {
+                      width: parent.width
+                      spacing: Style.space(8)
+                      Button {
+                        text: "Claim"
+                        bordered: true
+                        enabled: modelData.status !== "completed"
+                        onClicked: root.runCli(["claim-work", modelData.id, "--agent", "operator"])
+                      }
+                      Button {
+                        text: "Complete"
+                        bordered: true
+                        enabled: modelData.status !== "completed"
+                        onClicked: root.runCli(["complete-work", modelData.id, "--agent", "operator"])
+                      }
+                    }
                   }
                 }
                 Text {

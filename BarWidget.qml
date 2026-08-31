@@ -93,7 +93,7 @@ BarWidget {
   }
 
   function toggleConsole() {
-    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "io.github.franzferdinan51.agent-room", "{}"])
+    Quickshell.execDetached(["omarchy-shell", "shell", "summon", "io.github.franzferdinan51.agent-room", "{}"])
   }
 
   visible: true
