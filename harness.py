@@ -38,6 +38,16 @@ HARNESSES: list[dict[str, Any]] = [
         "acp": ["grok", "agent", "stdio"],
     },
     {
+        "id": "grok-local",
+        "label": "Grok Local",
+        "bin": "grok-local",
+        "family": "Local",
+        "blurb": "Local/offline-first Grok-compatible TUI",
+        "argv": ["grok-local", "--permission-mode", "bypassPermissions"],
+        "prompt_style": "dashdash",
+        "acp": None,
+    },
+    {
         "id": "codex",
         "label": "Codex",
         "bin": "codex",

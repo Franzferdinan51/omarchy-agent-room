@@ -191,6 +191,17 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(harness.default_settings()["default_harness"], "multi-agent-cli")
         self.assertEqual(harness.resolve_seat_harness(harness.default_settings(), "builder"), "multi-agent-cli")
 
+    def test_grok_local_is_a_compatible_local_harness(self):
+        with mock.patch.object(harness.shutil, "which", return_value="/home/test/.local/bin/grok-local"):
+            spec = harness.get("grok-local")
+        self.assertEqual(spec["id"], "grok-local")
+        self.assertEqual(spec["family"], "Local")
+        self.assertTrue(spec["installed"])
+        self.assertEqual(
+            harness.launch_argv("grok-local", "Read the room briefing", model="local-model"),
+            ["grok-local", "--permission-mode", "bypassPermissions", "--model", "local-model", "--", "Read the room briefing"],
+        )
+
     def test_multi_agent_cli_launches_standalone_mach(self):
         argv = harness.launch_argv("multi-agent-cli", "Reply exactly LOCAL_OK", model="ornith-1.5-9b")
         self.assertIn("multi_agent_cli.cli", argv)

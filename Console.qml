@@ -146,6 +146,7 @@ Item {
       out = [
         { value: "multi-agent-cli", label: "MultiAgentCli (LM Studio)" },
         { value: "grok", label: "Grok Build" },
+        { value: "grok-local", label: "Grok Local" },
         { value: "codex", label: "Codex" },
         { value: "claude", label: "Claude Code" },
         { value: "hermes", label: "Hermes" }
@@ -158,10 +159,11 @@ Item {
     { value: "acp", label: "ACP stdio" }
   ]
   function modelOptionsFor(harness) {
-    if (harness === "grok" && root.grokModelOptions.length > 0)
+    if ((harness === "grok" || harness === "grok-local") && root.grokModelOptions.length > 0)
       return root.grokModelOptions
     var options = {
       grok: [{ value: "", label: "Auto (account default)" }, { value: "grok-4.1", label: "Grok 4.1" }, { value: "grok-4.1-mini", label: "Grok 4.1 Mini" }],
+      "grok-local": [{ value: "", label: "Auto (local default)" }],
       codex: [{ value: "", label: "Auto (account default)" }, { value: "gpt-5.2-codex", label: "GPT-5.2 Codex" }, { value: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini" }],
       claude: [{ value: "", label: "Auto (account default)" }, { value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" }, { value: "claude-opus-4-1", label: "Claude Opus 4.1" }],
       hermes: [{ value: "", label: "Config default" }, { value: "qwen3-coder", label: "Qwen3 Coder" }, { value: "deepseek-v3", label: "DeepSeek V3" }],
