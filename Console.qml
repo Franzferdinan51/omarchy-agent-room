@@ -257,6 +257,13 @@ Item {
     modelDiscovery.running = true
   }
 
+  function harnessSupportsAcp(harness) {
+    var entries = root.house.harnesses || []
+    for (var i = 0; i < entries.length; i++)
+      if (entries[i].id === harness) return entries[i].acp_ready === true
+    return false
+  }
+
   function parseHouse(raw) {
     try {
       house = JSON.parse(raw || "{}")
@@ -1288,9 +1295,10 @@ Item {
                           }
                         }
                         Button { text: "Grok"; bordered: true; selected: (modelData.harness || modelData.program) === "grok"; onClicked: root.switchSeat(modelData.id, "grok", modelData.transport || "tui") }
+                        Button { text: "Grok Local"; bordered: true; selected: (modelData.harness || modelData.program) === "grok-local"; onClicked: root.switchSeat(modelData.id, "grok-local", "tui") }
                         Button { text: "Codex"; bordered: true; selected: (modelData.harness || modelData.program) === "codex"; onClicked: root.switchSeat(modelData.id, "codex", modelData.transport || "tui") }
                         Button { text: "Hermes"; bordered: true; selected: (modelData.harness || modelData.program) === "hermes"; onClicked: root.switchSeat(modelData.id, "hermes", modelData.transport || "tui") }
-                        Button { text: (modelData.transport === "acp") ? "Use TUI" : "Use ACP"; bordered: true; onClicked: root.switchSeat(modelData.id, modelData.harness || modelData.program, modelData.transport === "acp" ? "tui" : "acp") }
+                        Button { text: (modelData.transport === "acp") ? "Use TUI" : "Use ACP"; bordered: true; enabled: modelData.transport === "acp" || root.harnessSupportsAcp(modelData.harness || modelData.program); onClicked: root.switchSeat(modelData.id, modelData.harness || modelData.program, modelData.transport === "acp" ? "tui" : "acp") }
                       }
                     }
                   }

@@ -22,6 +22,12 @@ class ConsoleLayoutTests(unittest.TestCase):
         self.assertIn("id: telegramTokenField", source)
         self.assertIn("id: settingsWorkspaceField", source)
 
+    def test_console_exposes_grok_local_and_only_offers_available_acp(self):
+        source = (Path(__file__).resolve().parents[1] / "Console.qml").read_text(encoding="utf-8")
+        self.assertIn('text: "Grok Local"', source)
+        self.assertIn("function harnessSupportsAcp", source)
+        self.assertIn("root.harnessSupportsAcp(modelData.harness || modelData.program)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1067,7 +1067,7 @@ def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, 
     Path(cwd).mkdir(parents=True, exist_ok=True)
     unattended = bool(settings.get("launch_unattended", True))
     try:
-        if transport == "acp" and settings.get("acp_enabled", True):
+        if transport == "acp" and settings.get("acp_enabled", True) and hx.get(program).get("acp"):
             log_path = STATE_DIR / "acp" / f"{room['id']}-{role['id']}.jsonl"
             proc = subprocess.Popen(
                 [sys.executable, str(plugin / "acp_host.py"), program, cwd, str(log_path), prompt],
