@@ -202,6 +202,19 @@ class HouseTests(unittest.TestCase):
             ["grok-local", "--permission-mode", "bypassPermissions", "--model", "local-model", "--", "Read the room briefing"],
         )
 
+    def test_seat_launch_normalizes_harness_and_legacy_program_fields(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Harness Launch", "Use the local harness", str(self.dir), ["builder"], "grok")
+        )
+        room["roles"][0]["harness"] = "grok-local"
+        room["roles"][0]["program"] = "grok"
+        with mock.patch.object(ar.subprocess, "Popen", return_value=mock.Mock(pid=4567)) as popen:
+            ar._spawn_seat(room, room["roles"][0], harness.default_settings())
+        self.assertEqual(room["roles"][0]["harness"], "grok-local")
+        self.assertEqual(room["roles"][0]["program"], "grok-local")
+        command = popen.call_args.args[0]
+        self.assertEqual(command[3], "grok-local")
+
     def test_status_snapshot_preserves_harness_acp_readiness(self):
         with mock.patch.object(ar.hx, "detect", return_value=[
             {

@@ -1057,7 +1057,12 @@ def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, 
         f"You are {role['name']} in room {room['name']} using harness "
         f"{role.get('harness') or role.get('program')} over {role.get('transport') or 'tui'}."
     )
-    program = role.get("harness") or role.get("program") or room.get("program") or default_program()
+    # `program` is the legacy field; `harness` is the current field. Resolve
+    # once at the launch boundary and write both fields back so old rooms
+    # cannot silently launch a stale Grok Build command after a harness switch.
+    program = hx.normalize_id(role.get("harness") or role.get("program") or room.get("program") or default_program())
+    role["harness"] = program
+    role["program"] = program
     transport = role.get("transport") or "tui"
     env = os.environ.copy()
     env["AGENT_ROOM_ID"] = room["id"]
