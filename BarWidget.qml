@@ -93,7 +93,11 @@ BarWidget {
   }
 
   function toggleConsole() {
-    Quickshell.execDetached(["omarchy-shell", "shell", "summon", "io.github.franzferdinan51.agent-room", "{}"])
+    // Use the bar's command runner, matching Omarchy's built-in bar widgets.
+    // This keeps the click routed through the live shell instance after a
+    // plugin rescan/reload instead of spawning a detached helper path.
+    if (root.bar) root.bar.run("omarchy-shell shell toggle io.github.franzferdinan51.agent-room '{}'")
+    else Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "io.github.franzferdinan51.agent-room", "{}"])
   }
 
   visible: true
@@ -104,7 +108,9 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󱚣"
+    // Omarchy's built-in Agents widget uses the same robot glyph; keep this
+    // mark unmistakable in the top bar.
+    text: "AR"
     active: root.live || root.unread > 0
     slotSize: Style.bar.statusSlot
     tooltipText: root.unread > 0
