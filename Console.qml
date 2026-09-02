@@ -565,7 +565,7 @@ Item {
       PanelKeyCatcher {
         id: keyCatcher
         anchors.fill: parent
-        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || workspaceField.activeFocus || programField.activeFocus || roomFilterField.activeFocus || editNameField.activeFocus || editGoalField.activeFocus || editWorkspaceField.activeFocus || composeField.activeFocus
+        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || workspaceField.activeFocus || programField.activeFocus || roomFilterField.activeFocus || editNameField.activeFocus || editGoalField.activeFocus || editWorkspaceField.activeFocus || composeField.activeFocus || contextField.activeFocus || planField.activeFocus || workTitleField.activeFocus || workBriefField.activeFocus || telegramTokenField.activeFocus || settingsWorkspaceField.activeFocus
         onCloseRequested: root.requestClose()
         onActivateRequested: {}
 
@@ -616,7 +616,9 @@ Item {
 
           Flow {
             width: parent.width
-            height: 40
+            // The tab buttons wrap at compact widths. Let the Flow report its
+            // real height so the second row remains visible and clickable.
+            height: implicitHeight
             spacing: Style.space(8)
             Repeater {
               model: [
@@ -826,7 +828,7 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { width: parent.width - 100; placeholderText: "Add an operator context note…"; text: root.contextDraft; onTextChanged: root.contextDraft = text; Keys.onReturnPressed: root.addContext() }
+                  TextField { id: contextField; width: parent.width - 100; placeholderText: "Add an operator context note…"; text: root.contextDraft; onTextChanged: root.contextDraft = text; Keys.onReturnPressed: root.addContext() }
                   Button { text: "Add"; bordered: true; onClicked: root.addContext() }
                 }
                 Repeater {
@@ -876,7 +878,7 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { width: parent.width - 100; placeholderText: "Add a plan step…"; text: root.planDraft; onTextChanged: root.planDraft = text; Keys.onReturnPressed: root.addPlan() }
+                  TextField { id: planField; width: parent.width - 100; placeholderText: "Add a plan step…"; text: root.planDraft; onTextChanged: root.planDraft = text; Keys.onReturnPressed: root.addPlan() }
                   Button { text: "Add"; bordered: true; onClicked: root.addPlan() }
                 }
                 Repeater {
@@ -903,11 +905,11 @@ Item {
                 width: parent.width
                 spacing: Style.space(12)
                 PanelSectionHeader { text: "AGENT WORKBENCH"; foreground: root.foreground }
-                TextField { width: parent.width; placeholderText: "Task title"; text: root.workTitleDraft; onTextChanged: root.workTitleDraft = text }
+                TextField { id: workTitleField; width: parent.width; placeholderText: "Task title"; text: root.workTitleDraft; onTextChanged: root.workTitleDraft = text }
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { width: parent.width - 100; placeholderText: "Task brief"; text: root.workBriefDraft; onTextChanged: root.workBriefDraft = text; Keys.onReturnPressed: root.createWork() }
+                  TextField { id: workBriefField; width: parent.width - 100; placeholderText: "Task brief"; text: root.workBriefDraft; onTextChanged: root.workBriefDraft = text; Keys.onReturnPressed: root.createWork() }
                   Button { text: "Create task"; bordered: true; onClicked: root.createWork() }
                 }
                 StatsRow {
@@ -973,6 +975,7 @@ Item {
                 }
                 Text { text: "NAME"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
+                  id: telegramTokenField
                   id: nameField
                   width: parent.width
                   placeholderText: "Superprompt"
@@ -981,6 +984,7 @@ Item {
                 }
                 Text { text: "GOAL"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
+                  id: settingsWorkspaceField
                   id: goalField
                   width: parent.width
                   placeholderText: "What should the team deliver?"
