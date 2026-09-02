@@ -10,23 +10,12 @@ import shutil
 import json
 import os
 import re
-import sys
 import tomllib
 from urllib import request as urlrequest
 from pathlib import Path
 from typing import Any
 
 HARNESSES: list[dict[str, Any]] = [
-    {
-        "id": "multi-agent-cli",
-        "label": "MultiAgentCli (LM Studio)",
-        "bin": sys.executable,
-        "family": "Local",
-        "blurb": "Standalone local-first MultiAgentCli powered by LM Studio and SearXNG",
-        "argv": [sys.executable, "-m", "multi_agent_cli.cli"],
-        "prompt_style": "multi-agent-cli",
-        "acp": None,
-    },
     {
         "id": "grok",
         "label": "Grok Build",
@@ -152,15 +141,6 @@ HARNESSES: list[dict[str, Any]] = [
 BY_ID = {h["id"]: h for h in HARNESSES}
 
 
-def standalone_root() -> Path:
-    return Path(
-        os.environ.get(
-            "MACH_CLI_ROOT",
-            Path(__file__).resolve().parent.parent / "Franzferdinan51" / "MultiAgentCli",
-        )
-    ).expanduser().resolve()
-
-
 def lmstudio_default_model() -> str:
     """Return the first usable text model exposed by the local LM Studio API."""
     configured = os.environ.get("MACH_LMSTUDIO_MODEL", "").strip()
@@ -247,11 +227,11 @@ def grok_model_options() -> list[dict[str, str]]:
     return options
 
 DEFAULT_ROLE_HARNESS = {
-    "coordinator": "multi-agent-cli",
-    "builder": "multi-agent-cli",
-    "reviewer": "multi-agent-cli",
-    "judge": "multi-agent-cli",
-    "creative-director": "multi-agent-cli",
+    "coordinator": "grok-local",
+    "builder": "grok-local",
+    "reviewer": "grok-local",
+    "judge": "grok-local",
+    "creative-director": "grok-local",
 }
 
 DEFAULT_ROLE_TRANSPORT = {
@@ -263,6 +243,9 @@ DEFAULT_ROLE_TRANSPORT = {
 }
 
 ALIASES = {
+    # Compatibility for rooms/settings created before MultiAgentCli was
+    # removed. They now use the supported local harness.
+    "multi-agent-cli": "grok-local",
     "grok-build": "grok",
     "grokbuild": "grok",
     "build": "grok",
@@ -297,15 +280,11 @@ def get(harness_id: str) -> dict[str, Any]:
             "acp_ready": False,
         }
     item = dict(spec)
-    path = str(Path(spec["bin"]).resolve()) if hid == "multi-agent-cli" and standalone_root().is_dir() else shutil.which(spec["bin"])
+    path = shutil.which(spec["bin"])
     item["installed"] = bool(path)
     item["path"] = path or ""
     acp = spec.get("acp")
-    if hid == "multi-agent-cli":
-        item["installed"] = standalone_root().is_dir()
-        item["path"] = str(standalone_root()) if item["installed"] else ""
-        item["acp_ready"] = False
-    elif acp and shutil.which(acp[0]):
+    if acp and shutil.which(acp[0]):
         item["acp_ready"] = True
     elif acp and acp[0] == "npx" and shutil.which("npx"):
         item["acp_ready"] = True
@@ -322,12 +301,6 @@ def launch_argv(harness_id: str, prompt: str, unattended: bool = True, model: st
     spec = get(harness_id)
     style = spec.get("prompt_style") or "dashdash"
     argv = list(spec.get("argv") or [spec["bin"]])
-    if normalize_id(harness_id) == "multi-agent-cli":
-        # The standalone harness is a one-shot local agent, so a room seat
-        # runs its goal through LM Studio and exits cleanly.
-        argv += ["run", "--agents", "lmstudio", "--no-progress", "--json"]
-        argv += ["--model", model or lmstudio_default_model()]
-        return argv + ["--goal", prompt]
     if not unattended:
         argv = [spec["bin"]]
     if model:
@@ -361,7 +334,7 @@ def acp_argv(harness_id: str) -> list[str]:
 def default_settings() -> dict[str, Any]:
     return {
         "workspace": "current",
-        "default_harness": "multi-agent-cli",
+        "default_harness": "grok-local",
         "default_model": "",
         "mixed_harness": True,
         "default_transport": "tui",
@@ -389,10 +362,13 @@ def merge_settings(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return base
     for key, value in raw.items():
+        if key == "default_harness":
+            base[key] = get(str(value)).get("id")
+            continue
         if key in ("role_harness", "role_transport") and isinstance(value, dict):
             merged = dict(base[key])
             for rk, rv in value.items():
-                merged[str(rk)] = str(rv)
+                merged[str(rk)] = get(str(rv)).get("id") if key == "role_harness" else str(rv)
             base[key] = merged
         elif key in base:
             base[key] = value
@@ -405,7 +381,7 @@ def resolve_seat_harness(settings: dict[str, Any], role_id: str, explicit: str |
     roles = settings.get("role_harness") or {}
     if role_id in roles:
         return get(str(roles[role_id]))["id"]
-    return get(str(settings.get("default_harness") or "multi-agent-cli"))["id"]
+    return get(str(settings.get("default_harness") or "grok-local"))["id"]
 
 
 def resolve_transport(settings: dict[str, Any], role_id: str, explicit: str | None = None) -> str:

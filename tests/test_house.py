@@ -185,12 +185,6 @@ class HouseTests(unittest.TestCase):
         values = {item["value"] for item in options}
         self.assertIn("ornith-1.5-35b-a3b", values)
 
-    def test_multi_agent_cli_is_the_default_local_harness(self):
-        spec = harness.get("multi-agent-cli")
-        self.assertEqual(spec["family"], "Local")
-        self.assertEqual(harness.default_settings()["default_harness"], "multi-agent-cli")
-        self.assertEqual(harness.resolve_seat_harness(harness.default_settings(), "builder"), "multi-agent-cli")
-
     def test_grok_local_is_a_compatible_local_harness(self):
         with mock.patch.object(harness.shutil, "which", return_value="/home/test/.local/bin/grok-local"):
             spec = harness.get("grok-local")
@@ -202,6 +196,17 @@ class HouseTests(unittest.TestCase):
             harness.launch_argv("grok-local", "Read the room briefing", model="local-model"),
             ["grok-local", "--permission-mode", "bypassPermissions", "--model", "local-model", "--", "Read the room briefing"],
         )
+
+    def test_multi_agent_cli_is_removed_but_legacy_state_migrates_to_grok_local(self):
+        self.assertNotIn("multi-agent-cli", {item["id"] for item in harness.HARNESSES})
+        self.assertEqual(harness.get("multi-agent-cli")["id"], "grok-local")
+        self.assertEqual(harness.default_settings()["default_harness"], "grok-local")
+        merged = harness.merge_settings({
+            "default_harness": "multi-agent-cli",
+            "role_harness": {"builder": "multi-agent-cli"},
+        })
+        self.assertEqual(merged["default_harness"], "grok-local")
+        self.assertEqual(merged["role_harness"]["builder"], "grok-local")
 
     def test_seat_launch_normalizes_harness_and_legacy_program_fields(self):
         room = self.house.mutate(
@@ -248,30 +253,6 @@ class HouseTests(unittest.TestCase):
         config = self.dir / "config.yaml"
         config.write_text("model:\n  default: qwen3-coder\n  provider: openai\n", encoding="utf-8")
         self.assertEqual(connectors._read_yaml_model(config), "qwen3-coder")
-
-    def test_multi_agent_cli_launches_standalone_mach(self):
-        argv = harness.launch_argv("multi-agent-cli", "Reply exactly LOCAL_OK", model="ornith-1.5-9b")
-        self.assertIn("multi_agent_cli.cli", argv)
-        self.assertIn("lmstudio", argv)
-        self.assertIn("ornith-1.5-9b", argv)
-        self.assertIn("Reply exactly LOCAL_OK", argv)
-
-    def test_multi_agent_cli_discovers_model_when_seat_has_no_model(self):
-        with mock.patch.object(harness, "lmstudio_default_model", return_value="ornith-1.5-9b"):
-            argv = harness.launch_argv("multi-agent-cli", "hello")
-        self.assertIn("--model", argv)
-        self.assertIn("ornith-1.5-9b", argv)
-
-    def test_local_seat_completion_updates_room_state(self):
-        room = self.house.mutate(
-            lambda d: ar.create_room(d, "Local lifecycle", "Run", str(self.dir), ["builder"], "multi-agent-cli")
-        )
-        result = ar.finish_local_seat(self.house, room["id"], "builder", 0)
-
-        self.assertEqual(result["status"], "completed")
-        restored = self.house.snapshot()["rooms"][0]
-        self.assertEqual(restored["roles"][0]["status"], "completed")
-        self.assertEqual(restored["roles"][0]["pid"], 0)
 
     def test_lmstudio_model_options_filters_non_generation_models(self):
         class Response:

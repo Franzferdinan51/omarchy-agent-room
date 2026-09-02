@@ -98,15 +98,13 @@ def default_program() -> str:
             ["omarchy-default-agent"], text=True, stderr=subprocess.DEVNULL
         ).strip()
         if out:
-            return out
+            return hx.normalize_id(out)
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
-    if hx.get("multi-agent-cli").get("installed"):
-        return "multi-agent-cli"
-    for name in ("grok", "codex", "claude", "opencode"):
+    for name in ("grok-local", "grok", "codex", "claude", "opencode"):
         if shutil.which(name):
             return name
-    return "multi-agent-cli"
+    return "grok-local"
 
 
 def omarchy_version() -> str:
@@ -259,7 +257,7 @@ def decorate_house(data: dict[str, Any]) -> dict[str, Any]:
     mix = {}
     for room in rooms:
         for role in room.get("roles") or []:
-            hid = hx.get(role.get("program") or settings.get("default_harness") or "multi-agent-cli")["id"]
+            hid = hx.get(role.get("program") or settings.get("default_harness") or "grok-local")["id"]
             mix[hid] = mix.get(hid, 0) + 1
     data["stats"]["harnesses_installed"] = len(installed)
     data["stats"]["harness_mix"] = mix
@@ -1039,23 +1037,6 @@ def write_brief(room: dict[str, Any], role: dict[str, Any]) -> Path:
 
 def launch_command(program: str, prompt: str, unattended: bool = True) -> list[str]:
     return hx.launch_argv(program, prompt, unattended=unattended)
-
-
-def finish_local_seat(house: House, room_id: str, role_id: str, returncode: int) -> dict[str, Any]:
-    """Persist completion for a one-shot MultiAgentCli room seat."""
-    def _finish(data: dict[str, Any]) -> dict[str, Any]:
-        room = find_room(data, room_id)
-        role = find_role(room, role_id)
-        if not role:
-            raise KeyError(f"seat not found: {role_id}")
-        role["status"] = "completed" if returncode == 0 else "error"
-        role["pid"] = 0
-        role["finished_at"] = now_iso()
-        role["error"] = "" if returncode == 0 else f"MultiAgentCli exited with status {returncode}"
-        if not any(item.get("status") == "running" for item in room.get("roles") or []):
-            room["status"] = "idle"
-        return role
-    return house.mutate(_finish)
 
 
 def _spawn_seat(room: dict[str, Any], role: dict[str, Any], settings: dict[str, Any]) -> None:
@@ -2298,17 +2279,6 @@ def cli(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "exec-seat":
         argv = hx.launch_argv(args.harness, args.prompt, unattended=True, model=os.environ.get("AGENT_ROOM_MODEL", ""))
-        if hx.normalize_id(args.harness) == "multi-agent-cli":
-            root = hx.standalone_root()
-            if root.is_dir():
-                current = os.environ.get("PYTHONPATH", "")
-                os.environ["PYTHONPATH"] = str(root) + (os.pathsep + current if current else "")
-            returncode = subprocess.call(argv)
-            room_id = os.environ.get("AGENT_ROOM_ID", "")
-            role_id = os.environ.get("AGENT_ROOM_ROLE", "")
-            if room_id and role_id:
-                finish_local_seat(house, room_id, role_id, returncode)
-            return returncode
         os.execvp(argv[0], argv)
     if args.cmd == "set-monitor":
         hidden = args.hidden == "true"

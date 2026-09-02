@@ -36,11 +36,11 @@ Item {
   property bool formReviewer: true
   property bool formJudge: true
   property bool formCreative: true
-  property string formHCoordinator: "multi-agent-cli"
-  property string formHBuilder: "multi-agent-cli"
-  property string formHReviewer: "multi-agent-cli"
-  property string formHJudge: "multi-agent-cli"
-  property string formHCreative: "multi-agent-cli"
+  property string formHCoordinator: "grok-local"
+  property string formHBuilder: "grok-local"
+  property string formHReviewer: "grok-local"
+  property string formHJudge: "grok-local"
+  property string formHCreative: "grok-local"
   property string formTCoordinator: "tui"
   property string formTBuilder: "tui"
   property string formTReviewer: "tui"
@@ -55,7 +55,7 @@ Item {
   property string workBriefDraft: ""
   property string commandFilter: ""
   property bool startAfterCreate: false
-  property string settingsDefaultHarness: "multi-agent-cli"
+  property string settingsDefaultHarness: "grok-local"
   property string settingsDefaultModel: ""
   property string settingsDefaultTransport: "tui"
   property bool settingsMixed: true
@@ -150,7 +150,6 @@ Item {
     }
     if (out.length === 0) {
       out = [
-        { value: "multi-agent-cli", label: "MultiAgentCli (LM Studio)" },
         { value: "grok", label: "Grok Build" },
         { value: "grok-local", label: "Grok Local" },
         { value: "codex", label: "Codex" },
