@@ -197,6 +197,7 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(spec["id"], "grok-local")
         self.assertEqual(spec["family"], "Local")
         self.assertTrue(spec["installed"])
+        self.assertEqual(harness.acp_argv("grok-local"), ["grok-local", "agent", "stdio"])
         self.assertEqual(
             harness.launch_argv("grok-local", "Read the room briefing", model="local-model"),
             ["grok-local", "--permission-mode", "bypassPermissions", "--model", "local-model", "--", "Read the room briefing"],

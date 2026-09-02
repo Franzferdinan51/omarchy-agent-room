@@ -110,8 +110,13 @@ def _read_json_line(proc: subprocess.Popen, timeout: float = 30.0) -> dict[str, 
 
 def run_seat(harness_id: str, cwd: str, prompt: str, log_path: Path, env: dict[str, str]) -> int:
     argv = hx.acp_argv(harness_id)
-    if harness_id == "grok" and argv[:1] == ["grok"]:
-        argv = ["grok", "--permission-mode", "bypassPermissions"] + argv[1:]
+    if harness_id in ("grok", "grok-local") and argv[:1] == [harness_id]:
+        if harness_id == "grok":
+            argv = ["grok", "--permission-mode", "bypassPermissions"] + argv[1:]
+        else:
+            # Grok Local exposes native ACP through `agent stdio`; keep the
+            # ACP seat unattended just like its TUI launch.
+            argv = ["grok-local", "--always-approve"] + argv[1:]
         model = str(env.get("AGENT_ROOM_MODEL") or "").strip()
         if model:
             argv[1:1] = ["--model", model]

@@ -45,7 +45,7 @@ HARNESSES: list[dict[str, Any]] = [
         "blurb": "Local/offline-first Grok-compatible TUI",
         "argv": ["grok-local", "--permission-mode", "bypassPermissions"],
         "prompt_style": "dashdash",
-        "acp": None,
+        "acp": ["grok-local", "agent", "stdio"],
     },
     {
         "id": "codex",

@@ -12,7 +12,7 @@ Inspired by [@BLUECOW009's Omarchy setup](https://x.com/BLUECOW009/status/209376
 - **Health** — surfaces help requests, blocked work, claim collisions, failed seats, and stale running seats; an empty report explicitly shows when the house is clear
 - **Rooms** — a goal plus seats (coordinator, builder, reviewer, judge, creative-director)
 - **Multi-harness** — mix **Grok Build**, **Grok Local**, **Codex**, **Claude Code**, **Hermes**, OpenCode, Copilot, Gemini, and the rest in one room
-- **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
+- **ACP** — seats can run over Agent Client Protocol (`grok agent stdio`, `grok-local agent stdio`, `hermes acp`, Codex/Claude ACP adapters) instead of a TUI
 - **Shared MCP/ACP Mail** — every TUI and ACP seat receives the same Agent Room MCP server, so Grok, Codex, Claude, Hermes, and other harnesses can exchange Mail, coordinate goals, claim files, and use the help board together
 - **Hermes** — native connector: install, gateway, model, and ACP readiness on the Settings tab
 - **Telegram** — connect a BotFather bot to a selected team with secure token storage, long polling, pairing approval, and replies through the Agent Room connector
