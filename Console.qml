@@ -67,6 +67,10 @@ Item {
 
   onTabChanged: {
     if (scrollArea && scrollArea.contentItem) scrollArea.contentItem.contentY = 0
+    // Context, Plan, Work, and Teams all read the same file-backed house.
+    // Refresh as soon as the user opens a tab so agent writes are visible
+    // immediately instead of waiting for the background polling interval.
+    root.reloadHouse()
   }
 
   readonly property color foreground: Color.foreground
@@ -821,7 +825,7 @@ Item {
                   Button { text: "Add"; bordered: true; onClicked: root.addContext() }
                 }
                 Repeater {
-                  model: root.house.context || []
+                  model: root.room ? (root.house.context || []).filter(function(item) { return item.room_id === root.room.id }) : []
                   delegate: Rectangle {
                     required property var modelData
                     width: parent.width
@@ -851,8 +855,8 @@ Item {
                   }
                 }
                 Text {
-                  visible: (root.house.context || []).length === 0
-                  text: "Agents write context notes through the agent-room MCP."
+                  visible: root.room && !(root.house.context || []).some(function(item) { return item.room_id === root.room.id })
+                  text: "No context notes yet. Agents can call context_write."
                   color: root.dim
                   font.family: root.fontFamily
                 }
