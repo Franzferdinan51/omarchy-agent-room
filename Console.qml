@@ -7,6 +7,9 @@ import qs.Ui
 
 Item {
   id: root
+  // The FloatingWindow can be resized well beyond the preferred size. Keep
+  // the root geometry coupled to it so every tab inherits the full viewport.
+  anchors.fill: parent
   width: 980
   height: 860
 
