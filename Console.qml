@@ -248,7 +248,8 @@ Item {
   }
 
   function reloadHouse() {
-    houseFile.reload()
+    houseSnapshot.running = false
+    houseSnapshot.running = true
   }
 
   function refreshModels() {
@@ -495,7 +496,23 @@ Item {
     printErrors: false
     onLoaded: root.parseHouse(text())
     onLoadFailed: { root.lastError = "House state is unavailable; retrying…"; root.runCli(["init"]) }
-    onFileChanged: reload()
+    onFileChanged: root.reloadHouse()
+  }
+
+  // The state file is the source of truth, but status decorates it with live
+  // harness/ACP information. Read that snapshot on every refresh so newly
+  // installed tools such as grok-local appear without rewriting house.json.
+  Process {
+    id: houseSnapshot
+    command: [root.pluginDir + "/bin/agent-room", "status"]
+    stdout: StdioCollector {
+      onStreamFinished: root.parseHouse(this.text)
+    }
+    stderr: StdioCollector {
+      onStreamFinished: {
+        if (this.text && this.text.trim()) root.lastError = this.text.trim()
+      }
+    }
   }
 
   Process {
@@ -975,7 +992,6 @@ Item {
                 }
                 Text { text: "NAME"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
-                  id: telegramTokenField
                   id: nameField
                   width: parent.width
                   placeholderText: "Superprompt"
@@ -984,7 +1000,6 @@ Item {
                 }
                 Text { text: "GOAL"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
-                  id: settingsWorkspaceField
                   id: goalField
                   width: parent.width
                   placeholderText: "What should the team deliver?"
@@ -1435,6 +1450,7 @@ Item {
                   text: "Connect a Telegram bot to a team. Tokens stay in the desktop keyring when available and are never written to the Agent Room snapshot."
                 }
                 TextField {
+                  id: telegramTokenField
                   width: parent.width
                   placeholderText: root.telegramStatus.configured ? "Token saved — enter a new token to replace it" : "BotFather token"
                   echoMode: TextInput.Password
@@ -1488,6 +1504,7 @@ Item {
                 Toggle { width: parent.width; label: "Hermes enabled"; description: "Treat Hermes Agent as a first-class seat and show gateway status"; checked: root.settingsHermes; onClicked: root.settingsHermes = !root.settingsHermes }
                 Text { text: "WORKSPACE"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
                 TextField {
+                  id: settingsWorkspaceField
                   width: parent.width
                   text: root.settingsWorkspace
                   onTextChanged: root.settingsWorkspace = text

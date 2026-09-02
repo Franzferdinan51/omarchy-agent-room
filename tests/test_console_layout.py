@@ -14,6 +14,14 @@ class ConsoleLayoutTests(unittest.TestCase):
         for field in ("contextField", "planField", "workTitleField", "workBriefField"):
             self.assertIn(f"{field}.activeFocus", source)
 
+    def test_console_uses_dynamic_status_snapshot_and_unique_editor_ids(self):
+        source = (Path(__file__).resolve().parents[1] / "Console.qml").read_text(encoding="utf-8")
+        self.assertIn('command: [root.pluginDir + "/bin/agent-room", "status"]', source)
+        ids = [line.split("id:", 1)[1].strip() for line in source.splitlines() if "id:" in line]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn("id: telegramTokenField", source)
+        self.assertIn("id: settingsWorkspaceField", source)
+
 
 if __name__ == "__main__":
     unittest.main()
