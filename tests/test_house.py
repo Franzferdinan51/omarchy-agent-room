@@ -202,6 +202,34 @@ class HouseTests(unittest.TestCase):
             ["grok-local", "--permission-mode", "bypassPermissions", "--model", "local-model", "--", "Read the room briefing"],
         )
 
+    def test_status_snapshot_preserves_harness_acp_readiness(self):
+        with mock.patch.object(ar.hx, "detect", return_value=[
+            {
+                "id": "grok",
+                "label": "Grok Build",
+                "bin": "grok",
+                "family": "xAI",
+                "blurb": "Grok CLI / Grok Build",
+                "installed": True,
+                "path": "/home/test/.local/bin/grok",
+                "acp_ready": True,
+            },
+            {
+                "id": "grok-local",
+                "label": "Grok Local",
+                "bin": "grok-local",
+                "family": "Local",
+                "blurb": "Local/offline-first Grok-compatible TUI",
+                "installed": True,
+                "path": "/home/test/.local/bin/grok-local",
+                "acp_ready": False,
+            },
+        ]):
+            snapshot = self.house.snapshot()
+        by_id = {item["id"]: item for item in snapshot["harnesses"]}
+        self.assertTrue(by_id["grok"]["acp_ready"])
+        self.assertFalse(by_id["grok-local"]["acp_ready"])
+
     def test_multi_agent_cli_launches_standalone_mach(self):
         argv = harness.launch_argv("multi-agent-cli", "Reply exactly LOCAL_OK", model="ornith-1.5-9b")
         self.assertIn("multi_agent_cli.cli", argv)
@@ -344,6 +372,22 @@ class HouseTests(unittest.TestCase):
         self.assertEqual(snap["context"][0]["id"], context["id"])
         self.assertEqual(snap["plan"][0]["status"], "completed")
         self.assertEqual(snap["work"][0]["status"], "completed")
+
+    def test_agent_briefing_and_mcp_can_complete_plan_steps(self):
+        room = self.house.mutate(
+            lambda d: ar.create_room(d, "Plan Team", "Ship the release", str(self.dir), ["coordinator"], "grok")
+        )
+        role = room["roles"][0]
+        briefing = ar.briefing_text(room, role)
+        self.assertIn("plan_add", briefing)
+        self.assertIn("plan_complete", briefing)
+        plan = self.house.mutate(lambda d: ar.add_plan(d, room["id"], "Coordinator", "Ship the release"))
+        result = ar.call_tool(
+            "plan_complete",
+            {"plan_id": plan["id"], "author": "Coordinator"},
+            self.house,
+        )
+        self.assertEqual(result["status"], "completed")
 
     def test_mcp_tools_call(self):
         room = ar.call_tool(

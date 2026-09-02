@@ -251,6 +251,7 @@ def decorate_house(data: dict[str, Any]) -> dict[str, Any]:
             "blurb": h["blurb"],
             "installed": h["installed"],
             "path": h["path"],
+            "acp_ready": h["acp_ready"],
         }
         for h in detected
     ]
@@ -1009,6 +1010,11 @@ Work + file claims (avoid collisions):
 
 Start by fetching your inbox and listing work. Claim one assignment. Mail the team what you took. When you need help, post on the board instead of guessing.
 
+PLAN UPDATES (automatic room progress)
+- The coordinator should add the initial 3–5 actionable steps with plan_add before delegating work.
+- Any agent may add a newly discovered or revised step with plan_add; do not keep plan changes only in chat.
+- Mark a finished step with plan_complete(plan_id=..., author="{role['name']}").
+
 Identity for this seat:
 AGENT_ROOM_ID={room['id']}
 AGENT_ROOM_NAME={role['name']}
@@ -1492,7 +1498,19 @@ TOOLS = [
                 "author": {"type": "string"},
                 "text": {"type": "string"},
             },
-            "required": ["text"],
+        "required": ["text"],
+        },
+    },
+    {
+        "name": "plan_complete",
+        "description": "Mark a room plan item completed so the console updates automatically.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "plan_id": {"type": "string"},
+                "author": {"type": "string"},
+            },
+            "required": ["plan_id"],
         },
     },
     {
@@ -1758,6 +1776,12 @@ def call_tool(name: str, args: dict[str, Any], house: House) -> Any:
         room_id = _resolved_room(args, house)
         author = _agent_arg(args, "author")
         return house.mutate(lambda d: add_plan(d, room_id, author, args.get("text") or ""))
+    if name == "plan_complete":
+        return house.mutate(
+            lambda d: complete_plan(
+                d, str(args.get("plan_id") or ""), _agent_arg(args, "author")
+            )
+        )
     if name == "context_write":
         room_id = _resolved_room(args, house)
         author = _agent_arg(args, "author")

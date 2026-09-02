@@ -83,6 +83,9 @@ Item {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color card: Color.popups.background
   readonly property string fontFamily: Style.font.family
+  // Keep wide displays readable while allowing the content to use every pixel
+  // in a compact window. Cards and message bubbles stay visually centered.
+  readonly property real contentMaxWidth: 1280
   readonly property string pluginDir: {
     var s = Qt.resolvedUrl(".").toString()
     if (s.indexOf("file://") === 0) s = s.substring(7)
@@ -694,7 +697,8 @@ Item {
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
             Column {
-              width: scrollArea.availableWidth
+              width: Math.min(scrollArea.availableWidth, root.contentMaxWidth)
+              x: Math.max(0, (scrollArea.availableWidth - width) / 2)
               spacing: Style.space(16)
 
               Text {
@@ -824,9 +828,10 @@ Item {
                 width: parent.width
                 spacing: Style.space(8)
                 PanelSectionHeader { text: "COMMAND LOG"; foreground: root.foreground }
-                Row {
+                Flow {
+                  width: parent.width
                   spacing: Style.space(8)
-                  TextField { width: parent.width - 110; placeholderText: "Filter commands…"; text: root.commandFilter; onTextChanged: root.commandFilter = text }
+                  TextField { width: Math.max(120, parent.width - 110); placeholderText: "Filter commands…"; text: root.commandFilter; onTextChanged: root.commandFilter = text }
                   Button { text: "Clear"; bordered: true; onClicked: root.runMaintenance("clear-commands") }
                 }
                 Repeater {
@@ -852,7 +857,7 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { id: contextField; width: parent.width - 100; placeholderText: "Add an operator context note…"; text: root.contextDraft; onTextChanged: root.contextDraft = text; Keys.onReturnPressed: root.addContext() }
+                  TextField { id: contextField; width: Math.max(120, parent.width - 100); placeholderText: "Add an operator context note…"; text: root.contextDraft; onTextChanged: root.contextDraft = text; Keys.onReturnPressed: root.addContext() }
                   Button { text: "Add"; bordered: true; onClicked: root.addContext() }
                 }
                 Repeater {
@@ -902,7 +907,7 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { id: planField; width: parent.width - 100; placeholderText: "Add a plan step…"; text: root.planDraft; onTextChanged: root.planDraft = text; Keys.onReturnPressed: root.addPlan() }
+                  TextField { id: planField; width: Math.max(120, parent.width - 100); placeholderText: "Add a plan step…"; text: root.planDraft; onTextChanged: root.planDraft = text; Keys.onReturnPressed: root.addPlan() }
                   Button { text: "Add"; bordered: true; onClicked: root.addPlan() }
                 }
                 Repeater {
@@ -933,7 +938,7 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(8)
-                  TextField { id: workBriefField; width: parent.width - 100; placeholderText: "Task brief"; text: root.workBriefDraft; onTextChanged: root.workBriefDraft = text; Keys.onReturnPressed: root.createWork() }
+                  TextField { id: workBriefField; width: Math.max(120, parent.width - 100); placeholderText: "Task brief"; text: root.workBriefDraft; onTextChanged: root.workBriefDraft = text; Keys.onReturnPressed: root.createWork() }
                   Button { text: "Create task"; bordered: true; onClicked: root.createWork() }
                 }
                 StatsRow {
@@ -1087,7 +1092,6 @@ Item {
                   width: parent.width
                   spacing: Style.space(8)
                   PanelSectionHeader { text: "ROOMS  ·  " + root.rooms.length; foreground: root.foreground }
-                  Item { width: Math.max(0, parent.width - 190); height: 1 }
                   Button { text: "Refresh"; bordered: true; onClicked: root.reloadHouse() }
                 }
                 TextField {
@@ -1345,17 +1349,20 @@ Item {
                       y: Style.space(10)
                       width: parent.width - Style.space(28)
                       spacing: 6
-                      Row {
+                      Flow {
                         width: parent.width
+                        spacing: Style.space(8)
                         Text {
+                          width: parent.width
+                          wrapMode: Text.Wrap
                           text: (modelData.room || "") + "  ·  " + (modelData.from || "")
                           color: root.foreground
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.body
                           font.bold: true
                         }
-                        Item { width: 12; height: 1 }
                         Text {
+                          width: parent.width
                           text: modelData.time || ""
                           color: root.dim
                           font.family: root.fontFamily
@@ -1397,6 +1404,8 @@ Item {
                       width: parent.width - Style.space(28)
                       spacing: 4
                       Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
                         text: ((modelData.status || "open").toUpperCase()) + "  ·  " + (modelData.author || "") + "  ·  " + (modelData.title || "")
                         color: root.accent
                         font.family: root.fontFamily
@@ -1641,10 +1650,11 @@ Item {
       y: Style.space(12)
       width: parent.width - Style.space(32)
       spacing: 8
-      Row {
+      Column {
         width: parent.width
+        spacing: 4
         Text {
-          width: parent.width - 180
+          width: parent.width
           wrapMode: Text.Wrap
           text: title
           color: root.foreground
@@ -1654,7 +1664,8 @@ Item {
         }
       }
       Text {
-        anchors.right: capCol.right
+        width: parent.width
+        wrapMode: Text.Wrap
         text: statusText
         color: statusColor
         font.family: root.fontFamily
