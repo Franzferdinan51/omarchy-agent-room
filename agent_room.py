@@ -537,8 +537,16 @@ def create_room(
         seat = (seats or {}).get(rid) if isinstance(seats, dict) else None
         if not isinstance(seat, dict):
             seat = {}
-        hid = hx.resolve_seat_harness(settings, rid, seat.get("harness") or seat.get("program") or program)
-        transport = hx.resolve_transport(settings, rid, seat.get("transport"))
+        if settings.get("mixed_harness", True):
+            hid = hx.resolve_seat_harness(settings, rid, seat.get("harness") or seat.get("program") or program)
+            transport = hx.resolve_transport(settings, rid, seat.get("transport"))
+        else:
+            # A non-mixed room is deliberately uniform, even if stale UI or
+            # an older MCP client submits per-seat overrides.
+            hid = hx.get(str(settings.get("default_harness") or program)).get("id")
+            transport = str(settings.get("default_transport") or "tui")
+            if transport not in ("tui", "acp"):
+                transport = "tui"
         model = str(seat.get("model") or (settings.get("role_model") or {}).get(rid) or default_model)
         built.append(
             {

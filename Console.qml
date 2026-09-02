@@ -592,7 +592,7 @@ Item {
       PanelKeyCatcher {
         id: keyCatcher
         anchors.fill: parent
-        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || workspaceField.activeFocus || programField.activeFocus || roomFilterField.activeFocus || editNameField.activeFocus || editGoalField.activeFocus || editWorkspaceField.activeFocus || composeField.activeFocus || contextField.activeFocus || planField.activeFocus || workTitleField.activeFocus || workBriefField.activeFocus || telegramTokenField.activeFocus || settingsWorkspaceField.activeFocus
+        blocked: nameField.activeFocus || goalField.activeFocus || cwdField.activeFocus || workspaceField.activeFocus || programField.activeFocus || roomFilterField.activeFocus || editNameField.activeFocus || editGoalField.activeFocus || editWorkspaceField.activeFocus || composeField.activeFocus || chatComposeField.activeFocus || contextField.activeFocus || planField.activeFocus || workTitleField.activeFocus || workBriefField.activeFocus || telegramTokenField.activeFocus || settingsWorkspaceField.activeFocus
         onCloseRequested: root.requestClose()
         onActivateRequested: {}
 
@@ -657,6 +657,7 @@ Item {
                 { id: "work", label: "Work", count: root.stats.active_work || 0 },
                 { id: "house", label: "House", count: root.stats.teams || 0 },
                 { id: "teams", label: "Teams", count: root.stats.teams || 0 },
+                { id: "chat", label: "Chat", count: root.roomMail.length },
                 { id: "settings", label: "Settings" }
               ]
               delegate: Button {
@@ -1047,40 +1048,40 @@ Item {
                   visible: root.formCoordinator
                   spacing: Style.space(8)
                   width: parent.width
-                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHCoordinator; options: root.harnessOptions; onChanged: function(v) { root.formHCoordinator = v } }
-                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTCoordinator; options: root.transportOptions; onChanged: function(v) { root.formTCoordinator = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Harness"; value: root.formHCoordinator; options: root.harnessOptions; onChanged: function(v) { root.formHCoordinator = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Transport"; value: root.formTCoordinator; options: root.transportOptions; onChanged: function(v) { root.formTCoordinator = v } }
                 }
                 Toggle { width: parent.width; label: "Builder"; description: "Implements the assignment"; checked: root.formBuilder; onClicked: root.formBuilder = !root.formBuilder }
                 Row {
                   visible: root.formBuilder
                   spacing: Style.space(8)
                   width: parent.width
-                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHBuilder; options: root.harnessOptions; onChanged: function(v) { root.formHBuilder = v } }
-                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTBuilder; options: root.transportOptions; onChanged: function(v) { root.formTBuilder = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Harness"; value: root.formHBuilder; options: root.harnessOptions; onChanged: function(v) { root.formHBuilder = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Transport"; value: root.formTBuilder; options: root.transportOptions; onChanged: function(v) { root.formTBuilder = v } }
                 }
                 Toggle { width: parent.width; label: "Reviewer"; description: "Reads the work and files findings"; checked: root.formReviewer; onClicked: root.formReviewer = !root.formReviewer }
                 Row {
                   visible: root.formReviewer
                   spacing: Style.space(8)
                   width: parent.width
-                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHReviewer; options: root.harnessOptions; onChanged: function(v) { root.formHReviewer = v } }
-                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTReviewer; options: root.transportOptions; onChanged: function(v) { root.formTReviewer = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Harness"; value: root.formHReviewer; options: root.harnessOptions; onChanged: function(v) { root.formHReviewer = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Transport"; value: root.formTReviewer; options: root.transportOptions; onChanged: function(v) { root.formTReviewer = v } }
                 }
                 Toggle { width: parent.width; label: "Judge"; description: "Acceptance criteria and keep/remove"; checked: root.formJudge; onClicked: root.formJudge = !root.formJudge }
                 Row {
                   visible: root.formJudge
                   spacing: Style.space(8)
                   width: parent.width
-                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHJudge; options: root.harnessOptions; onChanged: function(v) { root.formHJudge = v } }
-                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTJudge; options: root.transportOptions; onChanged: function(v) { root.formTJudge = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Harness"; value: root.formHJudge; options: root.harnessOptions; onChanged: function(v) { root.formHJudge = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Transport"; value: root.formTJudge; options: root.transportOptions; onChanged: function(v) { root.formTJudge = v } }
                 }
                 Toggle { width: parent.width; label: "Creative-director"; description: "Novelty and framing"; checked: root.formCreative; onClicked: root.formCreative = !root.formCreative }
                 Row {
                   visible: root.formCreative
                   spacing: Style.space(8)
                   width: parent.width
-                  Dropdown { width: parent.width / 2 - 4; label: "Harness"; value: root.formHCreative; options: root.harnessOptions; onChanged: function(v) { root.formHCreative = v } }
-                  Dropdown { width: parent.width / 2 - 4; label: "Transport"; value: root.formTCreative; options: root.transportOptions; onChanged: function(v) { root.formTCreative = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Harness"; value: root.formHCreative; options: root.harnessOptions; onChanged: function(v) { root.formHCreative = v } }
+                  Dropdown { width: parent.width / 2 - 4; enabled: root.settingsMixed; label: "Transport"; value: root.formTCreative; options: root.transportOptions; onChanged: function(v) { root.formTCreative = v } }
                 }
                 Row {
                   spacing: Style.space(8)
@@ -1163,6 +1164,12 @@ Item {
                     Button { visible: root.deleteArmed; text: "Cancel"; bordered: true; onClicked: root.deleteArmed = false }
                   }
                 }
+              }
+
+              // ---------- CHAT ----------
+              ChatPanel {
+                visible: root.tab === "chat"
+                width: parent.width
               }
 
               // ---------- TEAMS ----------
@@ -1516,7 +1523,7 @@ Item {
                 Dropdown { width: parent.width; label: "Default harness"; value: root.settingsDefaultHarness; options: root.harnessOptions; onChanged: function(v) { root.settingsDefaultHarness = v } }
                 Dropdown { width: parent.width; label: "Default model"; value: root.settingsDefaultModel; options: root.modelOptions; onChanged: function(v) { root.settingsDefaultModel = v } }
                 Dropdown { width: parent.width; label: "Default transport"; value: root.settingsDefaultTransport; options: root.transportOptions; onChanged: function(v) { root.settingsDefaultTransport = v } }
-                Toggle { width: parent.width; label: "Mixed harness rooms"; description: "Allow each seat its own CLI"; checked: root.settingsMixed; onClicked: root.settingsMixed = !root.settingsMixed }
+                Toggle { width: parent.width; label: "Mixed harness rooms"; description: root.settingsMixed ? "Allow each seat its own CLI" : "Off: every new seat uses the default harness"; checked: root.settingsMixed; onClicked: root.settingsMixed = !root.settingsMixed }
                 Toggle { width: parent.width; label: "ACP enabled"; description: "Spawn seats with Agent Client Protocol adapters"; checked: root.settingsAcp; onClicked: root.settingsAcp = !root.settingsAcp }
                 Toggle { width: parent.width; label: "Hermes enabled"; description: "Treat Hermes Agent as a first-class seat and show gateway status"; checked: root.settingsHermes; onClicked: root.settingsHermes = !root.settingsHermes }
                 Text { text: "WORKSPACE"; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
@@ -1586,6 +1593,85 @@ Item {
       parts.push((r.name || r.id).toUpperCase() + "  ·  " + String(r.status || "idle").toUpperCase())
     }
     return parts.join("   ")
+  }
+
+  component ChatPanel: Column {
+    width: parent ? parent.width : 0
+    spacing: Style.space(12)
+
+    PanelSectionHeader { text: "ROOM CHAT"; foreground: root.foreground }
+    Text {
+      visible: !!root.room
+      width: parent.width
+      wrapMode: Text.Wrap
+      text: root.room ? ((root.room.name || "") + "  ·  " + (root.room.status || "idle") + "  ·  live MCP Mail") : ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+    Text {
+      visible: !root.room
+      width: parent.width
+      wrapMode: Text.Wrap
+      text: "No room selected. Create a room in House first."
+      color: root.dim
+      font.family: root.fontFamily
+    }
+    Repeater {
+      model: root.room ? root.roomMail : []
+      delegate: Rectangle {
+        required property var modelData
+        width: parent.width
+        implicitHeight: chatMessageColumn.implicitHeight + Style.space(20)
+        color: root.card
+        border.width: 1
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+        Column {
+          id: chatMessageColumn
+          x: Style.space(14)
+          y: Style.space(10)
+          width: parent.width - Style.space(28)
+          spacing: 5
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: (modelData.from || "agent") + "  ·  " + (modelData.time || "")
+            color: root.accent
+            font.family: root.fontFamily
+            font.bold: true
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.Wrap
+            text: (modelData.subject ? (modelData.subject + " — ") : "") + (modelData.body || "")
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+        }
+      }
+    }
+    Text {
+      visible: !!root.room && root.roomMail.length === 0
+      width: parent.width
+      text: "No messages yet. Agents will appear here as they coordinate."
+      color: root.dim
+      font.family: root.fontFamily
+    }
+    Row {
+      visible: !!root.room
+      width: parent.width
+      spacing: Style.space(8)
+      TextField {
+        id: chatComposeField
+        width: Math.max(120, parent.width - 88)
+        placeholderText: "Message the room…"
+        text: root.composeText
+        onTextChanged: root.composeText = text
+        Keys.onReturnPressed: root.sendCompose()
+      }
+      Button { text: "Send"; bordered: true; onClicked: root.sendCompose() }
+    }
   }
 
   component StatsRow: Flow {

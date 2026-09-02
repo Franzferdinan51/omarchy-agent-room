@@ -33,8 +33,15 @@ class ConsoleLayoutTests(unittest.TestCase):
     def test_console_exposes_grok_local_and_only_offers_available_acp(self):
         source = (Path(__file__).resolve().parents[1] / "Console.qml").read_text(encoding="utf-8")
         self.assertIn('text: "Grok Local"', source)
+        self.assertIn('{ id: "chat", label: "Chat", count: root.roomMail.length }', source)
+        self.assertIn('component ChatPanel: Column', source)
         self.assertIn("function harnessSupportsAcp", source)
         self.assertIn("root.harnessSupportsAcp(modelData.harness || modelData.program)", source)
+
+    def test_mixed_harness_controls_follow_the_persisted_setting(self):
+        source = (Path(__file__).resolve().parents[1] / "Console.qml").read_text(encoding="utf-8")
+        self.assertIn('enabled: root.settingsMixed', source)
+        self.assertIn('Off: every new seat uses the default harness', source)
 
 
 if __name__ == "__main__":

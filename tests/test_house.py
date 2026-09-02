@@ -243,6 +243,11 @@ class HouseTests(unittest.TestCase):
         self.assertTrue(by_id["grok"]["acp_ready"])
         self.assertFalse(by_id["grok-local"]["acp_ready"])
 
+    def test_hermes_status_reads_nested_default_model(self):
+        config = self.dir / "config.yaml"
+        config.write_text("model:\n  default: qwen3-coder\n  provider: openai\n", encoding="utf-8")
+        self.assertEqual(connectors._read_yaml_model(config), "qwen3-coder")
+
     def test_multi_agent_cli_launches_standalone_mach(self):
         argv = harness.launch_argv("multi-agent-cli", "Reply exactly LOCAL_OK", model="ornith-1.5-9b")
         self.assertIn("multi_agent_cli.cli", argv)
@@ -525,6 +530,41 @@ class HouseTests(unittest.TestCase):
         grok = hx.get("grok-build")
         self.assertEqual(grok["id"], "grok")
         self.assertTrue(grok["acp"])
+
+    def test_non_mixed_rooms_force_default_harness_and_transport(self):
+        self.house.mutate(lambda d: d["settings"].update(
+            mixed_harness=False,
+            default_harness="grok-local",
+            default_transport="tui",
+            role_harness={"builder": "grok"},
+            role_transport={"builder": "acp"},
+        ))
+        room = self.house.mutate(
+            lambda d: ar.create_room(
+                d,
+                "Uniform",
+                "Use one harness",
+                str(self.dir),
+                ["builder"],
+                "grok",
+                {"builder": {"harness": "codex", "transport": "acp"}},
+            )
+        )
+        self.assertEqual(room["roles"][0]["harness"], "grok-local")
+        self.assertEqual(room["roles"][0]["program"], "grok-local")
+        self.assertEqual(room["roles"][0]["transport"], "tui")
+
+    def test_non_mixed_rooms_ignore_role_transport_override(self):
+        self.house.mutate(lambda d: d["settings"].update(
+            mixed_harness=False, default_harness="grok-local", default_transport="tui"
+        ))
+        room = self.house.mutate(
+            lambda d: ar.create_room(
+                d, "TUI Only", "One transport", str(self.dir), ["judge"], "grok",
+                {"judge": {"harness": "grok", "transport": "acp"}},
+            )
+        )
+        self.assertEqual(room["roles"][0]["transport"], "tui")
 
 
 if __name__ == "__main__":

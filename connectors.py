@@ -171,10 +171,22 @@ def _read_yaml_model(path: Path) -> str:
     if not path.is_file():
         return ""
     try:
+        in_model = False
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("model:") or line.strip().startswith("model:"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if line.startswith("model:"):
                 value = line.split(":", 1)[1].strip().strip("\"'")
-                return value
+                if value:
+                    return value
+                in_model = True
+                continue
+            if in_model:
+                if not line.startswith((" ", "\t")):
+                    in_model = False
+                elif stripped.startswith("default:"):
+                    return stripped.split(":", 1)[1].strip().strip("\"'")
     except OSError:
         return ""
     return ""
