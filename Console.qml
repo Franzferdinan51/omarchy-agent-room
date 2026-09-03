@@ -656,7 +656,6 @@ Item {
                 { id: "work", label: "Work", count: root.stats.active_work || 0 },
                 { id: "house", label: "House", count: root.stats.teams || 0 },
                 { id: "teams", label: "Teams", count: root.stats.teams || 0 },
-                { id: "chat", label: "Chat", count: root.roomMail.length },
                 { id: "settings", label: "Settings" }
               ]
               delegate: Button {
@@ -669,6 +668,16 @@ Item {
                 selected: root.tab === modelData.id
                 onClicked: root.tab = modelData.id
               }
+            }
+            // Keep Chat as a dedicated, always-visible top-level action. It
+            // must not disappear into a clipped/overflowing tab repeater.
+            Button {
+              id: chatTabButton
+              height: 36
+              text: "Chat" + (root.roomMail.length > 0 ? "  " + root.roomMail.length : "")
+              bordered: true
+              selected: root.tab === "chat"
+              onClicked: root.tab = "chat"
             }
           }
 
